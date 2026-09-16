@@ -1,0 +1,35 @@
+# ======================================================================
+# Campus Library Borrowing System - Test Profile
+# ======================================================================
+
+spring:
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:15437}/${DB_NAME:library_system}
+    username: ${DB_USER:library}
+    password: ${DB_PASSWORD:library_password}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 5
+      connection-timeout: 10000
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:16381}
+      timeout: 3000ms
+
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+
+logging:
+  level:
+    root: INFO
+    com.library: DEBUG

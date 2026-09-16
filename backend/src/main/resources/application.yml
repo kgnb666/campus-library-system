@@ -1,0 +1,28 @@
+# ======================================================================
+# Campus Library Borrowing System - Global Configuration
+# ======================================================================
+
+spring:
+  application:
+    name: campus-library-backend
+  profiles:
+    active: dev
+  main:
+    banner-mode: console
+
+server:
+  port: ${SERVER_PORT:8080}
+  servlet:
+    context-path: /
+
+# Spring Actuator Monitoring
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true

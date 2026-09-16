@@ -1,0 +1,52 @@
+# ======================================================================
+# Campus Library Borrowing System - .gitignore
+# ======================================================================
+
+# Backend (Java / Maven)
+backend/target/
+backend/pom.xml.tag
+backend/pom.xml.releaseBackup
+backend/pom.xml.versionsBackup
+backend/release.properties
+*.class
+*.jar
+*.war
+*.ear
+
+# Frontend (Flutter / Dart)
+frontend/.dart_tool/
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+frontend/.packages
+frontend/.pub-cache/
+frontend/.pub/
+frontend/build/
+frontend/ios/Pods/
+frontend/ios/.symlinks/
+frontend/ios/Flutter/Flutter.framework
+frontend/ios/Flutter/Flutter.podspec
+frontend/android/.gradle/
+frontend/android/local.properties
+frontend/android/app/release/
+
+# IDE & Editors
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+*.sublime-project
+*.sublime-workspace
+.DS_Store
+Thumbs.db
+
+# Logs & Runtime data
+logs/
+*.log
+*.hprof
+
+# Environment local secrets
+.env.local
+.env.*.local
+*.pem
+*.key

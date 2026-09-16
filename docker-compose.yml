@@ -1,0 +1,55 @@
+services:
+  # ---------------------------------------------------------------------------
+  # 1. 关系型数据库：PostgreSQL 17
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:17
+    container_name: campus-library-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-library_system}
+      POSTGRES_USER: ${POSTGRES_USER:-library}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-library_password}
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      - "${POSTGRES_PORT:-15437}:5432"
+    volumes:
+      - campus_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-library} -d ${POSTGRES_DB:-library_system}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - campus_library_network
+
+  # ---------------------------------------------------------------------------
+  # 2. 高速缓存与会话：Redis 8
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:8
+    container_name: campus-library-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "${REDIS_PORT:-16381}:6379"
+    volumes:
+      - campus_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - campus_library_network
+
+volumes:
+  campus_postgres_data:
+    name: campus_postgres_data
+  campus_redis_data:
+    name: campus_redis_data
+
+networks:
+  campus_library_network:
+    name: campus_library_network
+    driver: bridge
