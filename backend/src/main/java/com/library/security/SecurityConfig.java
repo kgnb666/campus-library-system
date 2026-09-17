@@ -52,8 +52,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // 基础设施探针与系统错误
                         .requestMatchers("/actuator/**", "/error").permitAll()
-                        // 认证公开接口放行 (注册/登录/刷新/登出)
-                        .requestMatchers("/api/v1/auth/register", "/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/logout").permitAll()
+                        // 认证公开接口放行 (仅注册/登录/刷新)
+                        .requestMatchers("/api/v1/auth/register", "/api/v1/auth/login", "/api/v1/auth/refresh").permitAll()
                         // 公开接口放行
                         .requestMatchers("/api/v1/public/**").permitAll()
                         // Swagger UI 与 OpenAPI 文档放行

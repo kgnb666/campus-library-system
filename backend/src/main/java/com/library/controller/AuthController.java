@@ -45,9 +45,10 @@ public class AuthController {
     }
 
     @Operation(summary = "退出登录", description = "登出系统并销毁 Redis 中的 Refresh Token")
+    @SecurityRequirement(name = "BearerAuth")
     @PostMapping("/logout")
     public ApiResponse<Void> logout(@RequestBody(required = false) RefreshTokenRequest request) {
-        if (request != null) {
+        if (request != null && request.getRefreshToken() != null) {
             authService.logout(request.getRefreshToken());
         }
         return ApiResponse.success(null, "登出成功");

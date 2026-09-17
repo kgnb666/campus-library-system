@@ -170,8 +170,24 @@ class AuthControllerIntegrationTest {
 
     @Test
     @Order(8)
-    @DisplayName("登出接口 - 成功销毁令牌")
+    @DisplayName("登出接口 - 携带有效 Token 成功销毁令牌")
     void testLogout_Success() throws Exception {
+        RefreshTokenRequest request = RefreshTokenRequest.builder()
+                .refreshToken(sharedRefreshToken)
+                .build();
+
+        mockMvc.perform(post("/api/v1/auth/logout")
+                        .header("Authorization", "Bearer " + sharedAccessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"));
+    }
+
+    @Test
+    @Order(9)
+    @DisplayName("登出接口 - 匿名请求被拦截 401")
+    void testLogout_Unauthorized() throws Exception {
         RefreshTokenRequest request = RefreshTokenRequest.builder()
                 .refreshToken(sharedRefreshToken)
                 .build();
@@ -179,7 +195,7 @@ class AuthControllerIntegrationTest {
         mockMvc.perform(post("/api/v1/auth/logout")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value("SUCCESS"));
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_UNAUTHORIZED"));
     }
 }

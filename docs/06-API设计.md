@@ -86,32 +86,81 @@
 
 ---
 
-### 2.2 图书与物理副本模块（Books & Copies）
+### 2.2 图书分类字典模块（Categories - Stage 2-A）
 
-#### 1. 分页检索图书列表 `GET /api/v1/books`
-* **权限**：公开通用 `[STUDENT, LIBRARIAN, ADMIN]`
-* **Query Params**：`keyword`, `categoryId`, `onlyAvailable`, `sortBy`, `page`, `size`
-* **Response Data**：包含书目元数据、`coverUrl`、`availableCopies`、`totalCopies`。
+#### 1. 获取全部分类列表 `GET /api/v1/categories`
+* **权限**：登录用户 `[AUTHENTICATED]`（全角色可用）
+* **Response Data**：按 `sort_order ASC` 返回所有分类列表（含 `id`, `code`, `name`, `sortOrder`, `status`）。
 
-#### 2. 获取图书详情与物理副本列表 `GET /api/v1/books/{id}`
-* **权限**：通用 `[AUTHENTICATED]`
-* **Response Data**：包含图书详情与副本列表（物理状态：`AVAILABLE`, `BORROWED`, `MAINTENANCE` 等）。
+#### 2. 获取指定分类详情 `GET /api/v1/categories/{id}`
+* **权限**：登录用户 `[AUTHENTICATED]`
 
-#### 3. 上传图书封面 `POST /api/v1/files/upload/cover` (Stage 0.5 新增)
-* **权限**：管理员 `[LIBRARIAN, ADMIN]`
-* **Content-Type**：`multipart/form-data`
-* **Request Body**：`file: (binary)`（限制 JPG/PNG，小于 2MB）
-* **Response Data**：
-```json
-{
-  "coverUrl": "/uploads/covers/20260916_csapp.jpg",
-  "storageType": "LOCAL"
-}
-```
+#### 3. 新增图书分类 `POST /api/v1/categories`
+* **权限**：管理员 `[category:manage]` (LIBRARIAN, ADMIN)
+* **Request Body**：`{ "code": "CS", "name": "计算机科学", "sortOrder": 1, "description": "..." }`
+
+#### 4. 修改图书分类 `PUT /api/v1/categories/{id}`
+* **权限**：管理员 `[category:manage]` (LIBRARIAN, ADMIN)
+* **Request Body**：`{ "name": "计算机与智能科学", "sortOrder": 1, "status": "ACTIVE", "description": "..." }`
+
+#### 5. 删除图书分类 `DELETE /api/v1/categories/{id}`
+* **权限**：管理员 `[category:manage]` (LIBRARIAN, ADMIN)
+* **安全约束**：分类下仍挂有子分类或关联图书时阻断删除（返回 `CATEGORY_HAS_BOOKS` / `CATEGORY_HAS_CHILDREN`）。
 
 ---
 
-### 2.3 Excel 图书批量导入模块（Book Import - Stage 0.5 新增）
+### 2.3 图书书目与物理单册模块（Books & Copies - Stage 2-A）
+
+#### 1. 分页检索图书列表 `GET /api/v1/books`
+* **权限**：读者与管理员 `[book:view]`
+* **Query Params**：`page` (默认1), `size` (默认10), `categoryId`, `status`, `keyword`
+* **检索支持**：PostgreSQL `pg_trgm` GIN 三元组索引加速 `title`, `author`, `isbn` 模糊匹配。
+* **Response Data**：`PageResult<BookResponse>` 包含书目基本信息、分类名称、`totalCopies`、`availableCopies`。
+
+#### 2. 获取图书详情与物理副本列表 `GET /api/v1/books/{id}`
+* **权限**：读者与管理员 `[book:view]`
+* **Response Data**：`BookDetailResponse` 包含书目元数据与挂载的所有物理单册清单（`copies: [ { id, barcode, location, status, ... } ]`）。
+
+#### 3. 录入新书书目 `POST /api/v1/books`
+* **权限**：管理员 `[book:create]` (LIBRARIAN, ADMIN)
+* **Request Body**：`{ "isbn": "...", "title": "...", "author": "...", "categoryId": 1, ... }`
+* **约束**：ISBN 全局唯一，初始总册数与可借册数为 0。
+
+#### 4. 修改图书书目 `PUT /api/v1/books/{id}`
+* **权限**：管理员 `[book:update]` (LIBRARIAN, ADMIN)
+* **Request Body**：`BookUpdateRequest`（题名、作者、出版社、分类、简介、封面等）。
+
+#### 5. 删除图书书目 `DELETE /api/v1/books/{id}`
+* **权限**：超管 `[book:delete]` (ADMIN)
+* **安全约束**：若书目下仍存在任何物理副本记录（即使已报废），严禁物理删除（返回 `BOOK_HAS_COPIES`）。
+
+#### 6. 查询书目物理副本列表 `GET /api/v1/books/{id}/copies`
+* **权限**：读者与管理员 `[book:view]`
+* **Response Data**：`List<BookCopyResponse>`。
+
+#### 7. 添加物理单册副本 `POST /api/v1/books/{id}/copies`
+* **权限**：管理员 `[book:copy:manage]` (LIBRARIAN, ADMIN)
+* **Request Body**：`{ "barcode": "LIB-2026-000101", "location": "3F-CS-01", "status": "AVAILABLE" }`
+* **库存联动**：在事务内自动累加 `total_copies += 1`，若状态为 `AVAILABLE` 则同时 `available_copies += 1`。
+
+#### 8. 修改物理副本架位或状态 `PUT /api/v1/books/{id}/copies/{copyId}`
+* **权限**：管理员 `[book:copy:manage]` (LIBRARIAN, ADMIN)
+* **Request Body**：`{ "location": "...", "status": "MAINTENANCE", "remark": "..." }`
+* **库存联动**：根据副本从 AVAILABLE/非 AVAILABLE 的状态迁移，原子更新 `available_copies`。
+
+#### 9. 注销/删除物理副本 `DELETE /api/v1/books/{id}/copies/{copyId}`
+* **权限**：管理员 `[book:copy:manage]` (LIBRARIAN, ADMIN)
+* **安全约束**：借出中 (`BORROWED`) 的副本禁止删除；删除时原子递减 `total_copies -= 1` 及 `available_copies`。
+
+#### 10. 上传图书封面 `POST /api/v1/files/upload/cover`
+* **权限**：管理员 `[LIBRARIAN, ADMIN]`
+* **Content-Type**：`multipart/form-data`
+* **Request Body**：`file: (binary)`（限制 JPG/PNG，小于 2MB）
+* **Response Data**：`{ "coverUrl": "/uploads/covers/20260916_csapp.jpg", "storageType": "LOCAL" }`
+
+---
+
+### 2.4 Excel 图书批量导入模块（Book Import - Stage 2-C）
 
 #### 1. 下载导入标准模板 `GET /api/v1/books/import/template`
 * **权限**：管理员 `[LIBRARIAN, ADMIN]`

@@ -5,6 +5,8 @@ import '../../features/auth/domain/auth_state.dart';
 import '../../features/auth/presentation/auth_provider.dart';
 import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/presentation/profile_screen.dart';
+import '../../features/books/presentation/book_detail_screen.dart';
+import '../../features/books/presentation/book_list_screen.dart';
 
 /// 路由 Provider (支持基于 RBAC 登录状态的重定向守卫)
 final routerProvider = Provider<GoRouter>((ref) {
@@ -38,6 +40,14 @@ final routerProvider = Provider<GoRouter>((ref) {
         name: 'login',
         builder: (context, state) => const LoginScreen(),
       ),
+      GoRoute(
+        path: '/books/:id',
+        name: 'bookDetail',
+        builder: (context, state) {
+          final idStr = state.pathParameters['id'] ?? '0';
+          return BookDetailScreen(bookId: int.tryParse(idStr) ?? 0);
+        },
+      ),
     ],
   );
 });
@@ -55,7 +65,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
   final List<Widget> _pages = const [
     Center(child: Text('首页概览 (Stage 1 就绪)', style: TextStyle(fontSize: 18))),
-    Center(child: Text('馆藏检索 (Stage 1 就绪)', style: TextStyle(fontSize: 18))),
+    BookListScreen(), // 馆藏图书列表 (Stage 2-A)
     Center(child: Text('借阅管理 (Stage 1 就绪)', style: TextStyle(fontSize: 18))),
     ProfileScreen(), // 个人中心
   ];
