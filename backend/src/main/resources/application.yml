@@ -26,3 +26,19 @@ management:
       show-details: always
       probes:
         enabled: true
+
+# JWT Configuration
+jwt:
+  # Base64-safe secret key (>= 256 bits)
+  secret: ${JWT_SECRET:c2VjdXJlLWNhbXB1cy1saWJyYXJ5LWJvcnJvd2luZy1zeXN0ZW0tc2VjcmV0LWtleS0yMDI2LTA5LTE2LWZvci1qcGEtc3ByaW5nLXNlY3VyaXR5}
+  access-token-expiration: 1800000     # 30 minutes in ms
+  refresh-token-expiration: 604800000  # 7 days in ms
+
+# SpringDoc OpenAPI Swagger Configuration
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
