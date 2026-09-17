@@ -3,6 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../domain/book_copy_model.dart';
 import '../domain/book_model.dart';
 import 'book_provider.dart';
+import '../../borrow/data/borrow_repository.dart';
+import '../../borrow/presentation/borrow_provider.dart';
+import '../../reservation/data/reservation_repository.dart';
+import '../../reservation/presentation/reservation_provider.dart';
+import '../../ai/presentation/widgets/ai_book_insight_card.dart';
 
 /// 图书详情与物理副本清单界面 (Stage 2-A)
 class BookDetailScreen extends ConsumerWidget {
@@ -42,7 +47,7 @@ class BookDetailScreen extends ConsumerWidget {
         data: (book) => _buildDetailContent(context, book),
       ),
       bottomNavigationBar: bookAsync.maybeWhen(
-        data: (book) => _buildBottomActionBar(context, book),
+        data: (book) => _buildBottomActionBar(context, ref, book),
         orElse: () => const SizedBox.shrink(),
       ),
     );
@@ -138,6 +143,11 @@ class BookDetailScreen extends ConsumerWidget {
                 : '暂无详细导读信息。',
             style: theme.textTheme.bodyMedium?.copyWith(height: 1.5),
           ),
+
+          const SizedBox(height: 16),
+
+          // 3.1 AI 深度智能导读 (Stage 5)
+          AiBookInsightCard(bookId: book.id),
 
           const SizedBox(height: 24),
 
@@ -258,8 +268,8 @@ class BookDetailScreen extends ConsumerWidget {
     );
   }
 
-  /// 底部操作栏 (严格阶段约束: 借阅与预约按钮保留占位提示，严禁调用借阅API)
-  Widget _buildBottomActionBar(BuildContext context, BookModel book) {
+  /// 底部操作栏 (Stage 3 借阅出库与 Stage 4 预约排队联动打通)
+  Widget _buildBottomActionBar(BuildContext context, WidgetRef ref, BookModel book) {
     final theme = Theme.of(context);
     final isAvailable = book.availableCopies > 0;
 
@@ -275,26 +285,125 @@ class BookDetailScreen extends ConsumerWidget {
         children: [
           Expanded(
             child: OutlinedButton.icon(
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('预约排队功能将在 Stage 4 (预约领域) 开放')),
-                );
-              },
-              icon: const Icon(Icons.bookmark_border),
+              onPressed: !isAvailable ? () => _showReservationDialog(context, ref, book) : null,
+              icon: const Icon(Icons.bookmark_add_outlined),
               label: const Text('预约排队'),
             ),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: FilledButton.icon(
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('借阅出库功能将在 Stage 3 (借阅领域) 开放')),
-                );
-              },
+              onPressed: isAvailable ? () => _showBorrowDialog(context, ref, book) : null,
               icon: const Icon(Icons.shopping_bag_outlined),
-              label: Text(isAvailable ? '立即借阅' : '缺书待借'),
+              label: Text(isAvailable ? '立即借阅' : '全馆借空'),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showReservationDialog(BuildContext context, WidgetRef ref, BookModel book) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('确认预约排队'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('书名: 《${book.title}》', style: const TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            const Text('当前状态: 全馆单册借出，暂无可借副本'),
+            const SizedBox(height: 8),
+            const Text(
+              '提交预约后您将进入该书排队队列。当有其他借读者归还入库时，首位等待者将获得 48 小时专属自提保留期。',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                final repo = ref.read(reservationRepositoryProvider);
+                final res = await repo.createReservation(book.id);
+                ref.invalidate(bookDetailProvider(book.id));
+                ref.read(myReservationsProvider.notifier).loadReservations(refresh: true);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('预约成功！当前排在第 ${res.queuePosition} 位')),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('预约失败: ${e.toString()}')),
+                  );
+                }
+              }
+            },
+            child: const Text('确认排队'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showBorrowDialog(BuildContext context, WidgetRef ref, BookModel book) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('确认借阅图书'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('书名: 《${book.title}》', style: const TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            const Text('借阅期限: 30 天'),
+            Text('当前在架余本: ${book.availableCopies} 册'),
+            const SizedBox(height: 12),
+            const Text(
+              '系统将自动为您锁定并借出首本在架物理单册，借出后可在“借阅”中心查看或办理续借/还书。',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                final repo = ref.read(borrowRepositoryProvider);
+                await repo.borrowBook(book.id);
+                // 刷新图书详情（余本更新）
+                ref.invalidate(bookDetailProvider(book.id));
+                // 刷新在借列表
+                ref.read(activeBorrowsProvider.notifier).loadRecords(refresh: true);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('借阅成功！图书已借出，请前往“借阅”查看')),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('借阅失败: ${e.toString()}')),
+                  );
+                }
+              }
+            },
+            child: const Text('确认借出'),
           ),
         ],
       ),

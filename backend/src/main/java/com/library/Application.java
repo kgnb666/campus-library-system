@@ -2,12 +2,14 @@ package com.library;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * 校园图书借阅系统后端启动入口类 (Campus Library System)
  * Stage 1-A 基础设施就绪
  */
 @SpringBootApplication
+@EnableScheduling
 public class Application {
 
     public static void main(String[] args) {

@@ -61,9 +61,13 @@ class CatalogPostgresIntegrationTest {
 
     @AfterEach
     void tearDown() {
-        // 清理测试中产生的副本与图书
-        jdbcTemplate.update("DELETE FROM book_copies WHERE barcode LIKE 'BAR-%' OR barcode LIKE 'INV-%'");
-        jdbcTemplate.update("DELETE FROM books WHERE isbn LIKE '97899%' OR title LIKE '%并发编程%' OR title LIKE '%深入理解%' OR title LIKE '%重构%' OR title LIKE '%微服务%'");
+        // 清理测试中产生的关联预约、推荐日志、导读、借阅流水、副本与图书 (精准限定于测试 ISBN 与测试分类)
+        jdbcTemplate.update("DELETE FROM ai_recommendation_logs WHERE book_id IN (SELECT id FROM books WHERE isbn LIKE '97899%' OR category_id = ?)", testCategory.getId());
+        jdbcTemplate.update("DELETE FROM ai_book_insights WHERE book_id IN (SELECT id FROM books WHERE isbn LIKE '97899%' OR category_id = ?)", testCategory.getId());
+        jdbcTemplate.update("DELETE FROM reservations WHERE book_id IN (SELECT id FROM books WHERE isbn LIKE '97899%' OR category_id = ?)", testCategory.getId());
+        jdbcTemplate.update("DELETE FROM borrow_records WHERE copy_id IN (SELECT id FROM book_copies WHERE barcode LIKE 'BAR-%' OR barcode LIKE 'INV-%') OR book_id IN (SELECT id FROM books WHERE isbn LIKE '97899%' OR category_id = ?)", testCategory.getId());
+        jdbcTemplate.update("DELETE FROM book_copies WHERE barcode LIKE 'BAR-%' OR barcode LIKE 'INV-%' OR book_id IN (SELECT id FROM books WHERE isbn LIKE '97899%' OR category_id = ?)", testCategory.getId());
+        jdbcTemplate.update("DELETE FROM books WHERE isbn LIKE '97899%' OR category_id = ?", testCategory.getId());
     }
 
     @Test

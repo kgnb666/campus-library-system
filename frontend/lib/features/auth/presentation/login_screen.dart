@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../domain/auth_state.dart';
 import 'auth_provider.dart';
+import 'widgets/demo_account_switcher.dart';
 
 /// 登录页面组件 (Stage 1-B)
 class LoginScreen extends ConsumerStatefulWidget {
@@ -192,6 +193,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               ),
                             ),
                     ),
+                  ),
+
+                  // 答辩演示快捷填充组件 (Stage 7-A)
+                  DemoAccountSwitcher(
+                    onSelectAccount: (username, password) {
+                      setState(() {
+                        _usernameController.text = username;
+                        _passwordController.text = password;
+                      });
+                    },
                   ),
                 ],
               ),

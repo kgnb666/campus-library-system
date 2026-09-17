@@ -5,6 +5,8 @@ import 'package:campus_library_frontend/features/books/domain/book_copy_model.da
 import 'package:campus_library_frontend/features/books/domain/book_model.dart';
 import 'package:campus_library_frontend/features/books/presentation/book_detail_screen.dart';
 import 'package:campus_library_frontend/features/books/presentation/book_provider.dart';
+import 'package:campus_library_frontend/features/ai/domain/ai_model.dart';
+import 'package:campus_library_frontend/features/ai/presentation/ai_provider.dart';
 
 void main() {
   const mockBook = BookModel(
@@ -48,10 +50,21 @@ void main() {
     ],
   );
 
+  const mockInsight = BookInsightModel(
+    id: 1,
+    bookId: 101,
+    summary: 'AI导读：深入探讨程序执行、存储器层次结构与链接机制。',
+    keyTopics: ['计算机系统', '底层探秘'],
+    targetReader: '计算机系学生',
+    readingGuide: '推荐动手编写实验代码',
+    modelName: 'DeepSeek-V3',
+  );
+
   Widget createTestWidget() {
     return ProviderScope(
       overrides: [
         bookDetailProvider(101).overrideWith((ref) => Future.value(mockBook)),
+        bookInsightProvider(101).overrideWith((ref) => Future.value(mockInsight)),
       ],
       child: const MaterialApp(
         home: BookDetailScreen(bookId: 101),
@@ -72,6 +85,12 @@ void main() {
     expect(find.textContaining('9787111544937'), findsOneWidget);
     expect(find.text('从程序员的视角详细阐述计算机系统的本质与底层机制。'), findsOneWidget);
 
+    // 1.1 验证 AI 智能导读组件
+    expect(find.text('AI 深度智能导读'), findsOneWidget);
+    expect(find.text('DeepSeek-V3'), findsOneWidget);
+    expect(find.text('AI导读：深入探讨程序执行、存储器层次结构与链接机制。'), findsOneWidget);
+    expect(find.text('#计算机系统'), findsOneWidget);
+
     // 2. 验证馆藏物理单册列表
     expect(find.text('馆藏单册状态 (3)'), findsOneWidget);
     expect(find.text('条形码: LIB-2026-000101'), findsOneWidget);
@@ -80,21 +99,47 @@ void main() {
     expect(find.text('已借出'), findsOneWidget);
   });
 
-  testWidgets('验证预约排队受 Stage 4 阶段约束拦截提示', (WidgetTester tester) async {
-    await tester.pumpWidget(createTestWidget());
+  testWidgets('验证全馆借空时点击预约排队弹出预约确认对话框 (Stage 4)', (WidgetTester tester) async {
+    const fullyBorrowedBook = BookModel(
+      id: 102,
+      isbn: '9787111544937',
+      title: '深入理解计算机系统',
+      author: 'Randal E. Bryant',
+      totalCopies: 1,
+      availableCopies: 0,
+      categoryName: '计算机科学',
+      status: 'ACTIVE',
+      copies: [],
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          bookDetailProvider(102).overrideWith((ref) => Future.value(fullyBorrowedBook)),
+          bookInsightProvider(102).overrideWith((ref) => Future.value(mockInsight)),
+        ],
+        child: const MaterialApp(
+          home: BookDetailScreen(bookId: 102),
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
 
+    expect(find.text('全馆借空'), findsOneWidget);
     await tester.tap(find.text('预约排队'));
-    await tester.pump();
-    expect(find.text('预约排队功能将在 Stage 4 (预约领域) 开放'), findsOneWidget);
+    await tester.pumpAndSettle();
+
+    expect(find.text('确认预约排队'), findsOneWidget);
+    expect(find.text('确认排队'), findsOneWidget);
   });
 
-  testWidgets('验证借阅出库受 Stage 3 阶段约束拦截提示', (WidgetTester tester) async {
+  testWidgets('验证点击立即借阅弹出借阅出库确认对话框 (Stage 3)', (WidgetTester tester) async {
     await tester.pumpWidget(createTestWidget());
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('立即借阅'));
-    await tester.pump();
-    expect(find.text('借阅出库功能将在 Stage 3 (借阅领域) 开放'), findsOneWidget);
+    await tester.pumpAndSettle();
+    expect(find.text('确认借阅图书'), findsOneWidget);
+    expect(find.text('确认借出'), findsOneWidget);
   });
 }

@@ -5,6 +5,11 @@ import com.library.domain.enums.BookCopyStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -25,4 +30,18 @@ public interface BookCopyRepository extends JpaRepository<BookCopy, Long> {
     long countByBookId(Long bookId);
 
     long countByBookIdAndStatus(Long bookId, BookCopyStatus status);
+
+    long countByStatus(BookCopyStatus status);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT c FROM BookCopy c WHERE c.id = :id")
+    Optional<BookCopy> findByIdForUpdate(@Param("id") Long id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT c FROM BookCopy c WHERE c.barcode = :barcode")
+    Optional<BookCopy> findByBarcodeForUpdate(@Param("barcode") String barcode);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT c FROM BookCopy c WHERE c.book.id = :bookId AND c.status = :status ORDER BY c.id ASC")
+    List<BookCopy> findAvailableCopiesForUpdate(@Param("bookId") Long bookId, @Param("status") BookCopyStatus status);
 }

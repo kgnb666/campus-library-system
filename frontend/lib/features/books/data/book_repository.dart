@@ -178,4 +178,16 @@ class BookRepository {
   Future<void> deleteCopy(int bookId, int copyId) async {
     await _dio.delete('/books/$bookId/copies/$copyId');
   }
+
+  /// Excel 批量编目导入 (Stage 6-B)
+  Future<Map<String, dynamic>> importBooksExcel(List<int> fileBytes, String filename) async {
+    final formData = FormData.fromMap({
+      'file': MultipartFile.fromBytes(fileBytes, filename: filename),
+    });
+    final response = await _dio.post(
+      '/books/import/excel',
+      data: formData,
+    );
+    return response.data['data'] as Map<String, dynamic>;
+  }
 }

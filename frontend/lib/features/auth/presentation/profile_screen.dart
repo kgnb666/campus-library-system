@@ -157,6 +157,75 @@ class ProfileScreen extends ConsumerWidget {
               ),
             ),
           ),
+          const SizedBox(height: 16),
+
+          // 业务服务卡片
+          Card(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            elevation: 1,
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.auto_awesome, color: Colors.amber),
+                  title: const Text('AI 智能图书推荐'),
+                  subtitle: const Text('基于借阅偏好与协同过滤算法推荐好书'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push('/ai/recommendations'),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.analytics_outlined, color: Colors.indigo),
+                  title: const Text('我的阅读分析报告'),
+                  subtitle: const Text('借阅画像、履约率、节省开支与趋势看板'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push('/statistics/my-reading'),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.event_available, color: Colors.blue),
+                  title: const Text('我的图书预约'),
+                  subtitle: const Text('查看当前预约排队状态及到书待借通知'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push('/reservations'),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.notifications_active_outlined, color: Colors.deepPurple),
+                  title: const Text('消息通知中心'),
+                  subtitle: const Text('还书到馆待取、借阅临期催还与系统公告'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push('/notifications'),
+                ),
+              ],
+            ),
+          ),
+
+          if (user.roles.any((r) => r == 'LIBRARIAN' || r == 'ROLE_LIBRARIAN' || r == 'ADMIN' || r == 'ROLE_ADMIN')) ...[
+            const SizedBox(height: 16),
+            Card(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              elevation: 1,
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.dashboard_outlined, color: Colors.teal),
+                    title: const Text('馆员运营工作台'),
+                    subtitle: const Text('全馆资产大盘、实时流通监控与AI算法效能'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => context.push('/admin/dashboard'),
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.library_books_outlined, color: Colors.brown),
+                    title: const Text('图书编目管理工作台'),
+                    subtitle: const Text('书目CRUD、单册副本维护与Excel批量导入'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => context.push('/admin/catalog'),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );

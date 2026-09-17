@@ -34,4 +34,9 @@ public class PageResult<T> {
                 .hasNext(page.hasNext())
                 .build();
     }
+
+    public static <T, E> PageResult<T> from(Page<E> page, java.util.function.Function<E, T> mapper) {
+        List<T> items = page.getContent().stream().map(mapper).toList();
+        return of(page, items);
+    }
 }

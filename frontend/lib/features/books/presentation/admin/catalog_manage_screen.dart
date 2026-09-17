@@ -5,6 +5,7 @@ import '../../data/book_repository.dart';
 import '../../domain/book_copy_model.dart';
 import '../../domain/book_model.dart';
 import '../book_provider.dart';
+import 'widgets/excel_import_dialog.dart';
 
 /// 管理员编目工作台 (Stage 2-B)
 /// 严格 RBAC 权限双重保障：非 LIBRARIAN / ADMIN 角色禁止访问
@@ -101,6 +102,17 @@ class _CatalogManageScreenState extends ConsumerState<CatalogManageScreen> {
       appBar: AppBar(
         title: const Text('图书编目管理工作台'),
         actions: [
+          FilledButton.tonalIcon(
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (_) => ExcelImportDialog(onImportSuccess: _loadBooks),
+              );
+            },
+            icon: const Icon(Icons.file_upload_outlined, size: 18),
+            label: const Text('Excel导入'),
+          ),
+          const SizedBox(width: 8),
           FilledButton.icon(
             onPressed: () => _openBookEditDialog(context),
             icon: const Icon(Icons.add),

@@ -111,7 +111,14 @@
             <version>2.6.0</version>
         </dependency>
 
-        <!-- 12. Testing Starters -->
+        <!-- 12. EasyExcel for Streaming Excel Import -->
+        <dependency>
+            <groupId>com.alibaba</groupId>
+            <artifactId>easyexcel</artifactId>
+            <version>3.3.4</version>
+        </dependency>
+
+        <!-- 13. Testing Starters -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

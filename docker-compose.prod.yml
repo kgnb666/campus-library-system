@@ -1,0 +1,135 @@
+# ==============================================================================
+# Production Docker Compose - Campus Library Borrowing System
+# Full-Stack Orchestration: PostgreSQL 17 + Redis 8 + Spring Boot 3 + Flutter Web + Nginx Gateway
+# ==============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # 1. 关系型数据库：PostgreSQL 17
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:17-alpine
+    container_name: campus-library-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-library_system}
+      POSTGRES_USER: ${POSTGRES_USER:-library}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-library_password}
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - campus_postgres_data:/var/lib/postgresql/data
+      - ./docker/scripts/backup.sh:/usr/local/bin/backup.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-library} -d ${POSTGRES_DB:-library_system}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - campus_library_network
+
+  # ---------------------------------------------------------------------------
+  # 2. 高速缓存与排它控制：Redis 8
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:8-alpine
+    container_name: campus-library-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-library_redis_pwd}
+    volumes:
+      - campus_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-library_redis_pwd}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - campus_library_network
+
+  # ---------------------------------------------------------------------------
+  # 3. 后端核心微服务：Spring Boot 3 + JDK 21
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: ../docker/backend/Dockerfile
+    image: campus-library-backend:latest
+    container_name: campus-library-backend
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SERVER_PORT: 8080
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-library_system}
+      DB_USER: ${POSTGRES_USER:-library}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-library_password}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-library_redis_pwd}
+      JWT_SECRET: ${JWT_SECRET:-c2VjdXJlLWNhbXB1cy1saWJyYXJ5LWJvcnJvd2luZy1zeXN0ZW0tc2VjcmV0LWtleS0yMDI2LTA5LTE2LWZvci1qcGEtc3ByaW5nLXNlY3VyaXR5}
+      AI_API_KEY: ${AI_API_KEY:-mock-ai-api-key}
+      AI_BASE_URL: ${AI_BASE_URL:-https://api.deepseek.com/v1}
+      AI_MODEL: ${AI_MODEL:-deepseek-chat}
+      TZ: ${TZ:-Asia/Shanghai}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - campus_backend_logs:/app/logs
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    networks:
+      - campus_library_network
+
+  # ---------------------------------------------------------------------------
+  # 4. 前端应用：Flutter Web 静态托管
+  # ---------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ../docker/frontend/Dockerfile
+    image: campus-library-frontend:latest
+    container_name: campus-library-frontend
+    restart: unless-stopped
+    networks:
+      - campus_library_network
+
+  # ---------------------------------------------------------------------------
+  # 5. 反向代理网关：Nginx (SSL / Gzip / 路由分发 / 静态缓存)
+  # ---------------------------------------------------------------------------
+  nginx:
+    image: nginx:alpine
+    container_name: campus-library-gateway
+    restart: unless-stopped
+    ports:
+      - "${HOST_HTTP_PORT:-80}:80"
+      - "${HOST_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - campus_nginx_logs:/var/log/nginx
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - campus_library_network
+
+volumes:
+  campus_postgres_data:
+    name: campus_postgres_data
+  campus_redis_data:
+    name: campus_redis_data
+  campus_backend_logs:
+    name: campus_backend_logs
+  campus_nginx_logs:
+    name: campus_nginx_logs
+
+networks:
+  campus_library_network:
+    name: campus_library_network
+    driver: bridge

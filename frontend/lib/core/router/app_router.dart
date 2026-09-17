@@ -8,6 +8,12 @@ import '../../features/auth/presentation/profile_screen.dart';
 import '../../features/books/presentation/admin/catalog_manage_screen.dart';
 import '../../features/books/presentation/book_detail_screen.dart';
 import '../../features/books/presentation/book_list_screen.dart';
+import '../../features/borrow/presentation/borrow_circulation_screen.dart';
+import '../../features/reservation/presentation/reservation_screen.dart';
+import '../../features/ai/presentation/ai_recommendation_screen.dart';
+import '../../features/statistics/presentation/reading_statistics_screen.dart';
+import '../../features/notification/presentation/notification_center_screen.dart';
+import '../../features/statistics/presentation/librarian_dashboard_screen.dart';
 
 /// 路由 Provider (支持基于 RBAC 登录状态与管理权限的重定向守卫)
 final routerProvider = Provider<GoRouter>((ref) {
@@ -64,6 +70,31 @@ final routerProvider = Provider<GoRouter>((ref) {
         name: 'catalogManage',
         builder: (context, state) => const CatalogManageScreen(),
       ),
+      GoRoute(
+        path: '/reservations',
+        name: 'reservations',
+        builder: (context, state) => const ReservationScreen(),
+      ),
+      GoRoute(
+        path: '/ai/recommendations',
+        name: 'aiRecommendations',
+        builder: (context, state) => const AiRecommendationScreen(),
+      ),
+      GoRoute(
+        path: '/statistics/my-reading',
+        name: 'readingStatistics',
+        builder: (context, state) => const ReadingStatisticsScreen(),
+      ),
+      GoRoute(
+        path: '/notifications',
+        name: 'notifications',
+        builder: (context, state) => const NotificationCenterScreen(),
+      ),
+      GoRoute(
+        path: '/admin/dashboard',
+        name: 'librarianDashboard',
+        builder: (context, state) => const LibrarianDashboardScreen(),
+      ),
     ],
   );
 });
@@ -82,7 +113,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   final List<Widget> _pages = const [
     Center(child: Text('首页概览 (Stage 1 就绪)', style: TextStyle(fontSize: 18))),
     BookListScreen(), // 馆藏图书列表 (Stage 2-B)
-    Center(child: Text('借阅管理 (Stage 1 就绪)', style: TextStyle(fontSize: 18))),
+    BorrowCirculationScreen(), // 借阅流通工作台 (Stage 3)
     ProfileScreen(), // 个人中心
   ];
 
