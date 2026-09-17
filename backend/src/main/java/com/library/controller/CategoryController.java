@@ -2,8 +2,10 @@ package com.library.controller;
 
 import com.library.dto.category.CategoryCreateRequest;
 import com.library.dto.category.CategoryResponse;
+import com.library.dto.category.CategoryTreeResponse;
 import com.library.dto.category.CategoryUpdateRequest;
 import com.library.response.ApiResponse;
+import com.library.service.CategoryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -15,7 +17,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 /**
- * 图书分类管理控制器 (Stage 2-A)
+ * 图书分类管理控制器 (Stage 2-B 树形分类字典)
  */
 @Tag(name = "Category API", description = "图书分类字典维护与查询接口")
 @RestController
@@ -23,13 +25,20 @@ import java.util.List;
 @RequiredArgsConstructor
 public class CategoryController {
 
-    private final com.library.service.CategoryService categoryService;
+    private final CategoryService categoryService;
 
     @Operation(summary = "获取全部图书分类列表", description = "按排序号升序输出所有启用/停用的图书分类")
     @SecurityRequirement(name = "BearerAuth")
     @GetMapping
     public ApiResponse<List<CategoryResponse>> getAllCategories() {
         return ApiResponse.success(categoryService.getAllCategories());
+    }
+
+    @Operation(summary = "获取多级图书分类树形结构", description = "按层级嵌套返回分类树，具备防环保护与深度截断保护")
+    @SecurityRequirement(name = "BearerAuth")
+    @GetMapping("/tree")
+    public ApiResponse<List<CategoryTreeResponse>> getCategoryTree() {
+        return ApiResponse.success(categoryService.getCategoryTree());
     }
 
     @Operation(summary = "获取指定分类详情")

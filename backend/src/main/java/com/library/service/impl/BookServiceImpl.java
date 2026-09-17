@@ -5,10 +5,7 @@ import com.library.domain.entity.Book;
 import com.library.domain.entity.BookCopy;
 import com.library.domain.entity.Category;
 import com.library.domain.enums.BookStatus;
-import com.library.dto.book.BookCreateRequest;
-import com.library.dto.book.BookDetailResponse;
-import com.library.dto.book.BookResponse;
-import com.library.dto.book.BookUpdateRequest;
+import com.library.dto.book.*;
 import com.library.dto.common.PageResult;
 import com.library.dto.copy.BookCopyResponse;
 import com.library.exception.BusinessException;
@@ -30,10 +27,11 @@ import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 /**
- * 图书书目服务实现 (Stage 2-A)
+ * 图书书目服务实现 (Stage 2-B 检索增强与多维排序)
  */
 @Slf4j
 @Service
@@ -147,7 +145,7 @@ public class BookServiceImpl implements BookService {
     @Override
     @Transactional(readOnly = true)
     public PageResult<BookResponse> getBooksPage(int page, int size, Long categoryId, BookStatus status, String keyword) {
-        int pageNumber = Math.max(0, page - 1);
+        int pageNumber = page > 0 ? page - 1 : 0;
         int pageSize = Math.min(100, Math.max(1, size));
         Pageable pageable = PageRequest.of(pageNumber, pageSize, Sort.by(Sort.Direction.DESC, "createdAt"));
 
@@ -175,5 +173,107 @@ public class BookServiceImpl implements BookService {
                 .collect(Collectors.toList());
 
         return PageResult.of(bookPage, items);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResult<BookSearchResponse> searchBooks(String keyword, String author, String isbn,
+                                                      Long categoryId, Boolean availableOnly,
+                                                      int page, int size, String sort) {
+        int pageNumber = page > 0 ? page - 1 : 0;
+        int pageSize = Math.min(100, Math.max(1, size));
+        Sort sortObj = parseSort(sort);
+        Pageable pageable = PageRequest.of(pageNumber, pageSize, sortObj);
+
+        Specification<Book> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+
+            // 仅检索 ACTIVE 状态的书目
+            predicates.add(cb.equal(root.get("status"), BookStatus.ACTIVE));
+
+            // 分类过滤
+            if (categoryId != null) {
+                predicates.add(cb.equal(root.get("category").get("id"), categoryId));
+            }
+
+            // 仅看在馆可借图书
+            if (Boolean.TRUE.equals(availableOnly)) {
+                predicates.add(cb.greaterThan(root.get("availableCopies"), 0));
+            }
+
+            // 作者过滤 (模糊)
+            if (StringUtils.hasText(author)) {
+                predicates.add(cb.like(cb.lower(root.get("author")), "%" + author.trim().toLowerCase() + "%"));
+            }
+
+            // ISBN 过滤 (模糊/前缀)
+            if (StringUtils.hasText(isbn)) {
+                predicates.add(cb.like(cb.lower(root.get("isbn")), "%" + isbn.trim().toLowerCase() + "%"));
+            }
+
+            // 综合关键字检索 (匹配题名、作者、ISBN)
+            if (StringUtils.hasText(keyword)) {
+                String pattern = "%" + keyword.trim().toLowerCase() + "%";
+                Predicate titlePred = cb.like(cb.lower(root.get("title")), pattern);
+                Predicate authorPred = cb.like(cb.lower(root.get("author")), pattern);
+                Predicate isbnPred = cb.like(cb.lower(root.get("isbn")), pattern);
+                predicates.add(cb.or(titlePred, authorPred, isbnPred));
+            }
+
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+
+        // 纯数据库查询，基于 Spring Data JPA Specification + Pageable + Sort 执行
+        Page<Book> bookPage = bookRepository.findAll(spec, pageable);
+        List<BookSearchResponse> items = bookPage.getContent().stream()
+                .map(BookSearchResponse::fromEntity)
+                .collect(Collectors.toList());
+
+        return PageResult.of(bookPage, items);
+    }
+
+    /**
+     * 解析安全合法的排序表达式，防止非法属性注入
+     */
+    private Sort parseSort(String sortStr) {
+        if (!StringUtils.hasText(sortStr)) {
+            return Sort.by(Sort.Direction.DESC, "createdAt");
+        }
+
+        String[] parts = sortStr.trim().split(",");
+        String property = parts[0].trim();
+        Sort.Direction direction = Sort.Direction.DESC;
+
+        if (parts.length > 1 && "asc".equalsIgnoreCase(parts[1].trim())) {
+            direction = Sort.Direction.ASC;
+        }
+
+        // 白名单映射
+        String lowerProp = property.toLowerCase(Locale.ROOT);
+        String matchedProperty;
+        switch (lowerProp) {
+            case "title":
+                matchedProperty = "title";
+                break;
+            case "publishdate":
+            case "publish_date":
+                matchedProperty = "publishDate";
+                break;
+            case "availablecopies":
+            case "available_copies":
+                matchedProperty = "availableCopies";
+                break;
+            case "totalcopies":
+            case "total_copies":
+                matchedProperty = "totalCopies";
+                break;
+            case "createdat":
+            case "created_at":
+            default:
+                matchedProperty = "createdAt";
+                break;
+        }
+
+        return Sort.by(direction, matchedProperty);
     }
 }

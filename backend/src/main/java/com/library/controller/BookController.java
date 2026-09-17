@@ -1,10 +1,7 @@
 package com.library.controller;
 
 import com.library.domain.enums.BookStatus;
-import com.library.dto.book.BookCreateRequest;
-import com.library.dto.book.BookDetailResponse;
-import com.library.dto.book.BookResponse;
-import com.library.dto.book.BookUpdateRequest;
+import com.library.dto.book.*;
 import com.library.dto.common.PageResult;
 import com.library.dto.copy.BookCopyCreateRequest;
 import com.library.dto.copy.BookCopyResponse;
@@ -23,7 +20,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 /**
- * 图书书目与物理副本控制器 (Stage 2-A)
+ * 图书书目与物理副本控制器 (Stage 2-B 检索增强与编目管理)
  */
 @Tag(name = "Book & Copy API", description = "图书书目检索、编目与馆藏物理副本管理接口")
 @RestController
@@ -45,6 +42,23 @@ public class BookController {
             @RequestParam(required = false) BookStatus status,
             @RequestParam(required = false) String keyword) {
         PageResult<BookResponse> result = bookService.getBooksPage(page, size, categoryId, status, keyword);
+        return ApiResponse.success(result);
+    }
+
+    @Operation(summary = "多维图书高级检索接口", description = "支持关键字、作者、ISBN、分类过滤、仅看可借及动态数据库级排序")
+    @SecurityRequirement(name = "BearerAuth")
+    @PreAuthorize("hasAuthority('book:view')")
+    @GetMapping("/search")
+    public ApiResponse<PageResult<BookSearchResponse>> searchBooks(
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String author,
+            @RequestParam(required = false) String isbn,
+            @RequestParam(required = false) Long categoryId,
+            @RequestParam(required = false, defaultValue = "false") Boolean availableOnly,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String sort) {
+        PageResult<BookSearchResponse> result = bookService.searchBooks(keyword, author, isbn, categoryId, availableOnly, page, size, sort);
         return ApiResponse.success(result);
     }
 

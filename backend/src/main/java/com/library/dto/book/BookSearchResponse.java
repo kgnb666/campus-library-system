@@ -2,7 +2,6 @@ package com.library.dto.book;
 
 import com.library.domain.entity.Book;
 import com.library.domain.enums.BookStatus;
-import com.library.dto.copy.BookCopyResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -10,17 +9,17 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.OffsetDateTime;
-import java.util.List;
 
 /**
- * 图书详情响应传输对象 (包含馆藏物理副本列表) (Stage 2-B)
+ * 图书检索列表专用轻量响应传输对象 (Stage 2-B)
+ * 去除了长文本 description 字段，大幅减少列表数据包大小，提升网络吞吐与传输效率
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Schema(description = "图书详情响应传输对象 (含馆藏单册列表与库存摘要)")
-public class BookDetailResponse {
+@Schema(description = "图书检索列表轻量响应传输对象")
+public class BookSearchResponse {
 
     @Schema(description = "图书主键 ID", example = "1")
     private Long id;
@@ -43,14 +42,8 @@ public class BookDetailResponse {
     @Schema(description = "出版日期", example = "2007-06")
     private String publishDate;
 
-    @Schema(description = "内容简介与导读")
-    private String description;
-
-    @Schema(description = "封面图片 URL")
+    @Schema(description = "封面图片 URL", example = "https://example.com/cover.jpg")
     private String coverUrl;
-
-    @Schema(description = "存储介质 (LOCAL 或 OSS)", example = "LOCAL")
-    private String storageType;
 
     @Schema(description = "所属分类 ID", example = "1")
     private Long categoryId;
@@ -67,20 +60,14 @@ public class BookDetailResponse {
     @Schema(description = "书目状态", example = "ACTIVE")
     private BookStatus status;
 
-    @Schema(description = "创建时间")
+    @Schema(description = "创建/录入时间")
     private OffsetDateTime createdAt;
 
-    @Schema(description = "最后修改时间")
-    private OffsetDateTime updatedAt;
-
-    @Schema(description = "在馆/外借物理单册副本清单")
-    private List<BookCopyResponse> copies;
-
-    public static BookDetailResponse of(Book book, List<BookCopyResponse> copies) {
+    public static BookSearchResponse fromEntity(Book book) {
         if (book == null) {
             return null;
         }
-        return BookDetailResponse.builder()
+        return BookSearchResponse.builder()
                 .id(book.getId())
                 .isbn(book.getIsbn())
                 .title(book.getTitle())
@@ -88,17 +75,13 @@ public class BookDetailResponse {
                 .author(book.getAuthor())
                 .publisherName(book.getPublisherName())
                 .publishDate(book.getPublishDate())
-                .description(book.getDescription())
                 .coverUrl(book.getCoverUrl())
-                .storageType(book.getStorageType())
                 .categoryId(book.getCategory() != null ? book.getCategory().getId() : null)
                 .categoryName(book.getCategory() != null ? book.getCategory().getName() : null)
                 .totalCopies(book.getTotalCopies())
                 .availableCopies(book.getAvailableCopies())
                 .status(book.getStatus())
                 .createdAt(book.getCreatedAt())
-                .updatedAt(book.getUpdatedAt())
-                .copies(copies != null ? copies : List.of())
                 .build();
     }
 }

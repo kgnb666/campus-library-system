@@ -4,6 +4,7 @@ import com.library.common.enums.ResultCode;
 import com.library.domain.entity.Category;
 import com.library.dto.category.CategoryCreateRequest;
 import com.library.dto.category.CategoryResponse;
+import com.library.dto.category.CategoryTreeResponse;
 import com.library.dto.category.CategoryUpdateRequest;
 import com.library.exception.BusinessException;
 import com.library.repository.BookRepository;
@@ -14,16 +15,18 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * 图书分类服务实现 (Stage 2-A)
+ * 图书分类服务实现 (Stage 2-B 树形结构与防环支持)
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class CategoryServiceImpl implements CategoryService {
+
+    private static final int MAX_TREE_DEPTH = 5;
 
     private final CategoryRepository categoryRepository;
     private final BookRepository bookRepository;
@@ -114,5 +117,74 @@ public class CategoryServiceImpl implements CategoryService {
         Category category = categoryRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ResultCode.CATEGORY_NOT_FOUND, "目标分类不存在: id=" + id));
         return CategoryResponse.fromEntity(category);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<CategoryTreeResponse> getCategoryTree() {
+        List<Category> allCategories = categoryRepository.findAllByOrderBySortOrderAsc();
+        if (allCategories.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        Map<Long, CategoryTreeResponse> nodeMap = new HashMap<>();
+        Map<Long, List<CategoryTreeResponse>> parentToChildrenMap = new HashMap<>();
+
+        for (Category cat : allCategories) {
+            CategoryTreeResponse node = CategoryTreeResponse.builder()
+                    .id(cat.getId())
+                    .parentId(cat.getParentId())
+                    .code(cat.getCode())
+                    .name(cat.getName())
+                    .description(cat.getDescription())
+                    .sortOrder(cat.getSortOrder())
+                    .status(cat.getStatus())
+                    .children(new ArrayList<>())
+                    .build();
+            nodeMap.put(cat.getId(), node);
+
+            Long pid = cat.getParentId();
+            parentToChildrenMap.computeIfAbsent(pid, k -> new ArrayList<>()).add(node);
+        }
+
+        List<CategoryTreeResponse> rootNodes = new ArrayList<>();
+        Set<Long> visitedIds = new HashSet<>();
+
+        for (Category cat : allCategories) {
+            Long pid = cat.getParentId();
+            if (pid == null || !nodeMap.containsKey(pid)) {
+                CategoryTreeResponse root = nodeMap.get(cat.getId());
+                if (root != null && !visitedIds.contains(root.getId())) {
+                    buildTreeRecursively(root, parentToChildrenMap, visitedIds, 1);
+                    rootNodes.add(root);
+                }
+            }
+        }
+
+        return rootNodes;
+    }
+
+    private void buildTreeRecursively(CategoryTreeResponse current,
+                                     Map<Long, List<CategoryTreeResponse>> parentToChildrenMap,
+                                     Set<Long> visitedIds,
+                                     int depth) {
+        visitedIds.add(current.getId());
+
+        if (depth >= MAX_TREE_DEPTH) {
+            log.warn("分类树递归达到最大深度限制 (depth={}): categoryId={}", depth, current.getId());
+            return;
+        }
+
+        List<CategoryTreeResponse> children = parentToChildrenMap.get(current.getId());
+        if (children != null) {
+            for (CategoryTreeResponse child : children) {
+                if (visitedIds.contains(child.getId())) {
+                    log.warn("检测到分类树循环引用，已自动阻断: parentId={}, childId={}", current.getId(), child.getId());
+                    continue;
+                }
+                current.getChildren().add(child);
+                buildTreeRecursively(child, parentToChildrenMap, visitedIds, depth + 1);
+            }
+        }
     }
 }

@@ -5,10 +5,11 @@ import '../../features/auth/domain/auth_state.dart';
 import '../../features/auth/presentation/auth_provider.dart';
 import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/presentation/profile_screen.dart';
+import '../../features/books/presentation/admin/catalog_manage_screen.dart';
 import '../../features/books/presentation/book_detail_screen.dart';
 import '../../features/books/presentation/book_list_screen.dart';
 
-/// 路由 Provider (支持基于 RBAC 登录状态的重定向守卫)
+/// 路由 Provider (支持基于 RBAC 登录状态与管理权限的重定向守卫)
 final routerProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authStateProvider);
 
@@ -25,6 +26,16 @@ final routerProvider = Provider<GoRouter>((ref) {
       // 若处于已登录状态但试图访问登录页，重定向至主页
       if (authState.status == AuthStatus.authenticated && isLoggingIn) {
         return '/';
+      }
+
+      // 管理员路由守卫：访问 /admin/** 必须拥有 LIBRARIAN 或 ADMIN 角色
+      if (state.matchedLocation.startsWith('/admin')) {
+        final roles = authState.user?.roles ?? [];
+        final hasAdminOrLibrarian = roles.any((r) =>
+            r == 'ADMIN' || r == 'LIBRARIAN' || r == 'ROLE_ADMIN' || r == 'ROLE_LIBRARIAN');
+        if (!hasAdminOrLibrarian) {
+          return '/';
+        }
       }
 
       return null;
@@ -48,6 +59,11 @@ final routerProvider = Provider<GoRouter>((ref) {
           return BookDetailScreen(bookId: int.tryParse(idStr) ?? 0);
         },
       ),
+      GoRoute(
+        path: '/admin/catalog',
+        name: 'catalogManage',
+        builder: (context, state) => const CatalogManageScreen(),
+      ),
     ],
   );
 });
@@ -65,7 +81,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
   final List<Widget> _pages = const [
     Center(child: Text('首页概览 (Stage 1 就绪)', style: TextStyle(fontSize: 18))),
-    BookListScreen(), // 馆藏图书列表 (Stage 2-A)
+    BookListScreen(), // 馆藏图书列表 (Stage 2-B)
     Center(child: Text('借阅管理 (Stage 1 就绪)', style: TextStyle(fontSize: 18))),
     ProfileScreen(), // 个人中心
   ];

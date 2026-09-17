@@ -5,7 +5,7 @@ import '../../auth/presentation/auth_provider.dart';
 import '../domain/book_model.dart';
 import 'book_provider.dart';
 
-/// 图书馆藏目录列表页面 (Stage 2-A)
+/// 图书馆藏目录列表页面 (Stage 2-B 检索增强与编目体验优化)
 class BookListScreen extends ConsumerStatefulWidget {
   const BookListScreen({super.key});
 
@@ -16,6 +16,14 @@ class BookListScreen extends ConsumerStatefulWidget {
 class _BookListScreenState extends ConsumerState<BookListScreen> {
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+
+  // 排序选项映射
+  static const Map<String, String> _sortOptions = {
+    'createdAt,desc': '最新录入',
+    'title,asc': '标题排序',
+    'publishDate,desc': '出版日期',
+    'availableCopies,desc': '可借数量',
+  };
 
   @override
   void initState() {
@@ -42,9 +50,16 @@ class _BookListScreenState extends ConsumerState<BookListScreen> {
     final listState = ref.watch(bookListProvider);
     final categoriesAsync = ref.watch(categoriesProvider);
     final selectedCategoryId = ref.watch(selectedCategoryFilterProvider);
+    final currentSort = ref.watch(bookSortProvider);
+    final availableOnly = ref.watch(bookAvailableOnlyProvider);
+    final searchHistory = ref.watch(searchHistoryProvider);
+
     final currentUser = ref.watch(authStateProvider).user;
-    final isLibrarianOrAdmin = currentUser?.roles.any(
-            (role) => role == 'LIBRARIAN' || role == 'ADMIN' || role == 'ROLE_ADMIN' || role == 'ROLE_LIBRARIAN') ??
+    final isLibrarianOrAdmin = currentUser?.roles.any((role) =>
+            role == 'LIBRARIAN' ||
+            role == 'ADMIN' ||
+            role == 'ROLE_ADMIN' ||
+            role == 'ROLE_LIBRARIAN') ??
         false;
 
     return Scaffold(
@@ -52,10 +67,48 @@ class _BookListScreenState extends ConsumerState<BookListScreen> {
         title: const Text('馆藏图书检索'),
         elevation: 0,
         centerTitle: true,
+        actions: [
+          // 排序选择器
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.sort),
+            tooltip: '排序方式',
+            initialValue: currentSort,
+            onSelected: (val) {
+              ref.read(bookSortProvider.notifier).state = val;
+              ref.read(bookListProvider.notifier).loadInitial();
+            },
+            itemBuilder: (ctx) {
+              return _sortOptions.entries.map((entry) {
+                return PopupMenuItem<String>(
+                  value: entry.key,
+                  child: Row(
+                    children: [
+                      if (entry.key == currentSort)
+                        const Icon(Icons.check, size: 18, color: Colors.blue)
+                      else
+                        const SizedBox(width: 18),
+                      const SizedBox(width: 8),
+                      Text(entry.value),
+                    ],
+                  ),
+                );
+              }).toList();
+            },
+          ),
+          // 管理员专属编目工作台入口
+          if (isLibrarianOrAdmin)
+            IconButton(
+              icon: const Icon(Icons.admin_panel_settings_outlined),
+              tooltip: '编目工作台',
+              onPressed: () => context.push('/admin/catalog'),
+            ),
+          const SizedBox(width: 4),
+        ],
       ),
       body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1. 顶部搜索框
+          // 1. 顶部搜索框 (500ms 防抖)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: TextField(
@@ -80,38 +133,109 @@ class _BookListScreenState extends ConsumerState<BookListScreen> {
                 ),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 16),
               ),
+              onChanged: (value) {
+                // 500ms 防抖响应
+                ref.read(bookListProvider.notifier).onSearchInputChanged(value);
+              },
               onSubmitted: (value) {
-                ref.read(bookSearchKeywordProvider.notifier).state = value.trim();
+                final clean = value.trim();
+                ref.read(bookSearchKeywordProvider.notifier).state = clean;
+                if (clean.isNotEmpty) {
+                  ref.read(searchHistoryProvider.notifier).addHistory(clean);
+                }
                 ref.read(bookListProvider.notifier).loadInitial();
               },
             ),
           ),
 
-          // 2. 分类筛选横向滑动 Chips
-          SizedBox(
-            height: 48,
-            child: categoriesAsync.when(
-              loading: () => const Center(child: LinearProgressIndicator()),
-              error: (_, _) => const SizedBox.shrink(),
-              data: (categories) {
-                return ListView(
+          // 2. 搜索历史栏 (当有历史记录时展示)
+          if (searchHistory.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+              child: SizedBox(
+                height: 32,
+                child: ListView(
                   scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: ChoiceChip(
-                        label: const Text('全部'),
-                        selected: selectedCategoryId == null,
-                        onSelected: (selected) {
-                          if (selected) {
-                            ref.read(selectedCategoryFilterProvider.notifier).state = null;
-                            ref.read(bookListProvider.notifier).loadInitial();
-                          }
-                        },
-                      ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.history, size: 16, color: Colors.grey),
+                        const SizedBox(width: 4),
+                        ...searchHistory.map(
+                          (item) => Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: InputChip(
+                              label: Text(item, style: const TextStyle(fontSize: 11)),
+                              visualDensity: VisualDensity.compact,
+                              padding: EdgeInsets.zero,
+                              onPressed: () {
+                                _searchController.text = item;
+                                ref.read(bookSearchKeywordProvider.notifier).state = item;
+                                ref.read(searchHistoryProvider.notifier).addHistory(item);
+                                ref.read(bookListProvider.notifier).loadInitial();
+                              },
+                              onDeleted: () {
+                                ref.read(searchHistoryProvider.notifier).removeHistory(item);
+                              },
+                            ),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            ref.read(searchHistoryProvider.notifier).clearHistory();
+                          },
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 6),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                          child: const Text('清空历史', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                        ),
+                      ],
                     ),
-                    ...categories.map(
+                  ],
+                ),
+              ),
+            ),
+
+          // 3. 筛选栏：仅看在馆可借 + 分类 ChoiceChips
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: SizedBox(
+              height: 44,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                children: [
+                  // 仅看可借 FilterChip
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: FilterChip(
+                      label: const Text('仅看在馆可借'),
+                      selected: availableOnly,
+                      onSelected: (val) {
+                        ref.read(bookAvailableOnlyProvider.notifier).state = val;
+                        ref.read(bookListProvider.notifier).loadInitial();
+                      },
+                    ),
+                  ),
+
+                  // 分类 Chips
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: ChoiceChip(
+                      label: const Text('全部'),
+                      selected: selectedCategoryId == null,
+                      onSelected: (selected) {
+                        if (selected) {
+                          ref.read(selectedCategoryFilterProvider.notifier).state = null;
+                          ref.read(bookListProvider.notifier).loadInitial();
+                        }
+                      },
+                    ),
+                  ),
+                  ...categoriesAsync.maybeWhen(
+                    data: (categories) => categories.map(
                       (cat) => Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 4),
                         child: ChoiceChip(
@@ -125,15 +249,16 @@ class _BookListScreenState extends ConsumerState<BookListScreen> {
                         ),
                       ),
                     ),
-                  ],
-                );
-              },
+                    orElse: () => [],
+                  ),
+                ],
+              ),
             ),
           ),
 
           const Divider(height: 1),
 
-          // 3. 图书列表内容区
+          // 4. 图书列表内容区
           Expanded(
             child: _buildListContent(context, listState),
           ),
@@ -141,15 +266,9 @@ class _BookListScreenState extends ConsumerState<BookListScreen> {
       ),
       floatingActionButton: isLibrarianOrAdmin
           ? FloatingActionButton.extended(
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('录入与批量导入属于管理员后台功能，将在 Stage 2-C 增强'),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.add),
-              label: const Text('新书建档'),
+              onPressed: () => context.push('/admin/catalog'),
+              icon: const Icon(Icons.manage_accounts),
+              label: const Text('编目工作台'),
             )
           : null,
     );
