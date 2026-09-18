@@ -154,22 +154,32 @@ public class ReservationServiceImpl implements ReservationService {
             throw new BusinessException(ResultCode.PARAM_VALIDATION_ERROR, "必须指定预约记录ID");
         }
 
-        // 1. 行级排他锁锁定预约记录
-        Reservation reservation = reservationRepository.findByIdForUpdate(reservationId)
+        // 1. 无锁只读查询预约单，获取关联书目与基础信息
+        Reservation target = reservationRepository.findById(reservationId)
                 .orElseThrow(() -> new BusinessException(ResultCode.RESERVATION_NOT_FOUND));
 
         // 2. 防越权校验
-        if (!isAdminOrLibrarian(currentUser) && !reservation.getUser().getId().equals(currentUser.getId())) {
+        if (!isAdminOrLibrarian(currentUser) && !target.getUser().getId().equals(currentUser.getId())) {
             throw new BusinessException(ResultCode.AUTH_FORBIDDEN, "无权操作他人的预约单");
         }
 
-        // 3. 状态校验
+        Long bookId = target.getBook().getId();
+
+        // 3. 【核心加锁拓扑对齐】：必须先锁定父级书目 Book，将加锁偏序严格统一为 Book -> Reservation
+        Book book = bookRepository.findByIdForUpdate(bookId)
+                .orElseThrow(() -> new BusinessException(ResultCode.BOOK_NOT_FOUND));
+
+        // 4. 持有 Book 锁后，再行级排他锁锁定 Reservation
+        Reservation reservation = reservationRepository.findByIdForUpdate(reservationId)
+                .orElseThrow(() -> new BusinessException(ResultCode.RESERVATION_NOT_FOUND));
+
+        // 5. 状态校验
         if (reservation.getStatus() != ReservationStatus.READY) {
             throw new BusinessException(ResultCode.RESERVATION_NOT_READY,
                     "当前预约单状态为 " + reservation.getStatus().getDescription() + "，非就绪可借状态");
         }
 
-        // 4. 超期时效校验
+        // 6. 超期时效校验
         OffsetDateTime now = OffsetDateTime.now();
         if (reservation.getExpiredAt() != null && now.isAfter(reservation.getExpiredAt())) {
             reservation.setStatus(ReservationStatus.EXPIRED);
@@ -178,19 +188,19 @@ public class ReservationServiceImpl implements ReservationService {
             throw new BusinessException(ResultCode.RESERVATION_EXPIRED);
         }
 
-        // 5. 触发 Stage 3 借阅流通核心出库
+        // 7. 触发 Stage 3 借阅流通核心出库（此时已持有 Book 锁，borrowBook 重入顺畅）
         BorrowCreateRequest borrowRequest = BorrowCreateRequest.builder()
-                .bookId(reservation.getBook().getId())
+                .bookId(bookId)
                 .build();
         BorrowRecordResponse borrowRecordResponse = borrowCirculationService.borrowBook(borrowRequest, currentUser);
 
-        // 6. 更新预约记录为 COMPLETED
+        // 8. 更新预约记录为 COMPLETED
         reservation.setStatus(ReservationStatus.COMPLETED);
         reservation.setCompletedAt(now);
         reservation.setQueuePosition(0);
         Reservation savedReservation = reservationRepository.save(reservation);
 
-        // 7. 记录履约出库事件
+        // 9. 记录履约出库事件
         User operator = userRepository.findById(currentUser.getId()).orElse(null);
         reservationEventRepository.save(ReservationEvent.builder()
                 .reservation(savedReservation)

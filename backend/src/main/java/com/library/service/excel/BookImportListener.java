@@ -131,8 +131,8 @@ public class BookImportListener implements ReadListener<BookImportExcelDto> {
 
         List<BookCopy> copyList = new ArrayList<>(copies);
         for (int i = 0; i < copies; i++) {
-            String barcode = String.format("BAR-%d-%d-%d",
-                    book.getId(), System.currentTimeMillis() % 1000000, i + 1);
+            String barcode = String.format("BAR-%d-%s-%02d",
+                    book.getId(), UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase(), i + 1);
             copyList.add(BookCopy.builder()
                     .book(book)
                     .barcode(barcode)
