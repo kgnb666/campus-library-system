@@ -10,15 +10,17 @@ import com.library.repository.BookRepository;
 import com.library.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.time.format.DateTimeFormatter;
 
 /**
- * 领域事件通知联动监听器 (Stage 6-B)
- * 监听借阅、预约就绪、超期失效等领域事件并驱动站内信通知入库
+ * 领域事件通知联动监听器 (Stage 6-B & 9-D)
+ * 异步解耦：主事务完全提交后才触发异步通知入库 (AFTER_COMMIT)，主事务回滚绝不误发通知，
+ * 且通知写入由专用 notificationExecutor 线程池执行，不占用主借还事务物理数据库连接。
  */
 @Slf4j
 @Component
@@ -31,9 +33,10 @@ public class NotificationEventListener {
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
     /**
-     * 监听借阅成功事件 -> 推送借阅成功回执
+     * 监听借阅成功事件 -> 主事务提交后异步推送借阅成功回执
      */
-    @EventListener
+    @Async("notificationExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onBookBorrowed(BookBorrowedEvent event) {
         if (event == null || event.getUserId() == null || event.getBookId() == null) {
             return;
@@ -60,9 +63,10 @@ public class NotificationEventListener {
     }
 
     /**
-     * 监听预约就绪事件 -> 推送到馆取书通知 (48小时保留期)
+     * 监听预约就绪事件 -> 主事务提交后异步推送到馆取书通知 (48小时保留期)
      */
-    @EventListener
+    @Async("notificationExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onReservationReady(ReservationReadyEvent event) {
         if (event == null || event.getUserId() == null) {
             return;
@@ -91,9 +95,10 @@ public class NotificationEventListener {
     }
 
     /**
-     * 监听预约超期失效事件 -> 推送失效提醒
+     * 监听预约超期失效事件 -> 主事务提交后异步推送失效提醒
      */
-    @EventListener
+    @Async("notificationExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onReservationExpired(ReservationExpiredEvent event) {
         if (event == null || event.getUserId() == null) {
             return;
