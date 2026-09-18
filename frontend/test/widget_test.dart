@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:campus_library_frontend/features/auth/domain/auth_state.dart';
 import 'package:campus_library_frontend/features/auth/domain/user_model.dart';
 import 'package:campus_library_frontend/features/auth/presentation/auth_provider.dart';
+import 'package:campus_library_frontend/features/ai/presentation/ai_provider.dart';
+import 'package:campus_library_frontend/features/ai/domain/ai_model.dart';
+import 'package:campus_library_frontend/features/statistics/presentation/statistics_provider.dart';
 import 'package:campus_library_frontend/main.dart';
 
 void main() {
@@ -16,12 +19,18 @@ void main() {
       permissions: ['user:profile:view'],
     );
 
-    // 渲染根组件，注入已登录的 AuthState 作用域
+    // 渲染根组件，注入已登录的 AuthState 与首页依赖作用域
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
           authStateProvider.overrideWith(
             (ref) => FakeAuthNotifier(AuthState.authenticated(mockUser)),
+          ),
+          aiRecommendationsProvider.overrideWith(
+            (ref) => FakeAiRecommendationsNotifier(),
+          ),
+          popularBooksRankingProvider(null).overrideWith(
+            (ref) => Future.value([]),
           ),
         ],
         child: const CampusLibraryApp(),
@@ -36,6 +45,21 @@ void main() {
     expect(find.text('借阅'), findsOneWidget);
     expect(find.text('我的'), findsOneWidget);
   });
+}
+
+class FakeAiRecommendationsNotifier extends StateNotifier<AiRecommendationsState>
+    implements AiRecommendationsNotifier {
+  FakeAiRecommendationsNotifier()
+      : super(const AiRecommendationsState(recommendations: [], isLoading: false));
+
+  @override
+  Future<void> loadRecommendations({bool refresh = false}) async {}
+
+  @override
+  Future<void> recordClick(RecommendedBookModel book) async {}
+
+  @override
+  Future<void> submitFeedback(RecommendedBookModel book, String feedback) async {}
 }
 
 class FakeAuthNotifier extends StateNotifier<AuthState> implements AuthNotifier {

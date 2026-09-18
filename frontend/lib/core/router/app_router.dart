@@ -14,6 +14,7 @@ import '../../features/ai/presentation/ai_recommendation_screen.dart';
 import '../../features/statistics/presentation/reading_statistics_screen.dart';
 import '../../features/notification/presentation/notification_center_screen.dart';
 import '../../features/statistics/presentation/librarian_dashboard_screen.dart';
+import '../../features/home/presentation/home_screen.dart';
 
 /// 路由 Provider (支持基于 RBAC 登录状态与管理权限的重定向守卫)
 final routerProvider = Provider<GoRouter>((ref) {
@@ -110,24 +111,28 @@ class MainNavigationScreen extends StatefulWidget {
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _currentIndex = 0;
 
-  final List<Widget> _pages = const [
-    Center(child: Text('首页概览 (Stage 1 就绪)', style: TextStyle(fontSize: 18))),
-    BookListScreen(), // 馆藏图书列表 (Stage 2-B)
-    BorrowCirculationScreen(), // 借阅流通工作台 (Stage 3)
-    ProfileScreen(), // 个人中心
-  ];
+  void _switchTab(int index) {
+    if (mounted) {
+      setState(() {
+        _currentIndex = index;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final pages = [
+      HomeScreen(onNavigateTab: _switchTab),
+      const BookListScreen(), // 馆藏图书列表 (Stage 2-B)
+      const BorrowCirculationScreen(), // 借阅流通工作台 (Stage 3)
+      const ProfileScreen(), // 个人中心
+    ];
+
     return Scaffold(
-      body: _pages[_currentIndex],
+      body: pages[_currentIndex],
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
-        onDestinationSelected: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
+        onDestinationSelected: _switchTab,
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.home_outlined),
