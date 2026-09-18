@@ -50,8 +50,8 @@ public class SecurityConfig {
                 )
                 // 路径放行策略
                 .authorizeHttpRequests(auth -> auth
-                        // 基础设施探针与系统错误
-                        .requestMatchers("/actuator/**", "/error").permitAll()
+                        // 基础设施探针与系统错误 (精确收敛：仅放行健康检查与基础信息，敏感端点禁止公开裸露)
+                        .requestMatchers("/actuator/health", "/actuator/info", "/error").permitAll()
                         // 认证公开接口放行 (仅注册/登录/刷新)
                         .requestMatchers("/api/v1/auth/register", "/api/v1/auth/login", "/api/v1/auth/refresh").permitAll()
                         // 公开接口放行

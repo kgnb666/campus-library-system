@@ -19,6 +19,7 @@ services:
     volumes:
       - campus_postgres_data:/var/lib/postgresql/data
       - ./docker/scripts/backup.sh:/usr/local/bin/backup.sh:ro
+      - ./docker/scripts/restore.sh:/usr/local/bin/restore.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-library} -d ${POSTGRES_DB:-library_system}"]
       interval: 5s
@@ -67,9 +68,9 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-library_redis_pwd}
       JWT_SECRET: ${JWT_SECRET:-c2VjdXJlLWNhbXB1cy1saWJyYXJ5LWJvcnJvd2luZy1zeXN0ZW0tc2VjcmV0LWtleS0yMDI2LTA5LTE2LWZvci1qcGEtc3ByaW5nLXNlY3VyaXR5}
-      AI_API_KEY: ${AI_API_KEY:-mock-ai-api-key}
-      AI_BASE_URL: ${AI_BASE_URL:-https://api.deepseek.com/v1}
-      AI_MODEL: ${AI_MODEL:-deepseek-chat}
+      AI_DEEPSEEK_API_KEY: ${AI_DEEPSEEK_API_KEY:-${AI_API_KEY:-mock-ai-api-key}}
+      AI_DEEPSEEK_BASE_URL: ${AI_DEEPSEEK_BASE_URL:-${AI_BASE_URL:-https://api.deepseek.com/v1}}
+      AI_DEEPSEEK_MODEL: ${AI_DEEPSEEK_MODEL:-${AI_MODEL:-deepseek-chat}}
       TZ: ${TZ:-Asia/Shanghai}
     depends_on:
       postgres:

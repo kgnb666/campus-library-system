@@ -21,8 +21,8 @@ echo "[$(date +'%Y-%m-%d %H:%M:%S')] [INFO] 开始执行数据库备份: ${DB_NA
 
 mkdir -p "${BACKUP_DIR}"
 
-# 通过 docker exec 执行 pg_dump 并使用 gzip 压缩
-if docker exec -t "${CONTAINER_NAME}" pg_dump -U "${DB_USER}" -d "${DB_NAME}" --clean --if-exists | gzip > "${BACKUP_FILE}"; then
+# 通过 docker exec 执行 pg_dump 并使用 gzip 压缩 (使用 -i 避免 -t 伪终端 \\r\\n 污染管道)
+if docker exec -i "${CONTAINER_NAME}" pg_dump -U "${DB_USER}" -d "${DB_NAME}" --clean --if-exists | gzip > "${BACKUP_FILE}"; then
     BACKUP_SIZE=$(du -h "${BACKUP_FILE}" | cut -f1)
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] [SUCCESS] 备份成功完成: ${BACKUP_FILE} (大小: ${BACKUP_SIZE})"
 else
