@@ -9,16 +9,16 @@
 
 ### 2. GitHub About Box (Repository Description)
 ```
-Production-grade Campus Library Management System featuring deterministic lock ordering for zero-deadlock inventory control, FIFO reservation state machine, hybrid stock-aware AI recommendation, Grounded-RAG book insights, and full Docker containerization.
+Production-grade Campus Library Management System featuring deterministic lock ordering for DAG-constrained deadlock prevention, FIFO reservation state machine, stock-aware multi-criteria recommendation, structured metadata constrained AI book insights, and full Docker containerization.
 ```
 
 ### 3. Detailed English Overview (for README English Section)
 The **Campus Library Borrowing System** is an end-to-end open-source digital library platform engineered to address real-world challenges in university academic environments:
-- **Zero-Deadlock Concurrency**: Eliminates circular-wait deadlocks between borrowing and return transactions via strict `Book -> BookCopy` deterministic locking.
+- **Deadlock-Free Circulation**: Eliminates circular-wait deadlocks along borrow, return, and reservation paths via strict `Book -> BookCopy` and `Book -> Reservation` deterministic locking.
 - **Closed-Loop FIFO Reservation**: Monotonically ordered waiting queue with automatic domain-event-driven reader wakeup upon book return.
-- **Stock-Aware Hybrid AI Engine**: Seamlessly integrates content-based filtering, user collaborative filtering, circulation popularity, and real-time physical shelf availability.
-- **Grounded-RAG Book Insights**: Eliminates LLM hallucinations by conditioning DeepSeek prompts on structured catalog metadata, physically decoupled from database transactions.
-- **Cloud-Native Deployment**: Multi-stage lightweight Alpine images (215MB), non-root least-privilege security, Nginx gateway, and automated daily backup routines.
+- **Stock-Aware Multi-Criteria Recommendation Engine**: Seamlessly integrates reader category/author preferences, reading trajectory behavior, circulation popularity, and real-time physical shelf availability (+15.0 score boost).
+- **Structured Metadata-Constrained Book Insights**: Eliminates LLM hallucinations by conditioning DeepSeek prompts on catalog metadata with dual-mode fallback to a local rule engine, physically decoupled from database transactions.
+- **Cloud-Native Deployment**: Multi-stage lightweight Alpine images (215MB), non-root least-privilege security, Nginx gateway, and automated daily backup/restore routines.
 
 ---
 
@@ -35,9 +35,8 @@ library-management-system
 high-concurrency
 deadlock-prevention
 pessimistic-locking
-ai-recommendation
-collaborative-filtering
-rag
+heuristic-recommendation
+ai-insights
 deepseek
 docker-compose
 easyexcel
@@ -71,7 +70,7 @@ material-design-3
    │                                                                          │
    │                CAMPUS SMART LIBRARY CIRCULATION SYSTEM                   │
    │                                                                          │
-   │      [ Zero-Deadlock Concurrency ] • [ Grounded-RAG ] • [ Full-Stack ]   │
+   │      [ Deterministic Locking ] • [ AI Book Insights ] • [ Full-Stack ]   │
    │                                                                          │
    ╰──────────────────────────────────────────────────────────────────────────╯
 ```
@@ -84,7 +83,7 @@ material-design-3
 - **形态象征**：
   - 由两组对称的几何弧线构成“翻开的书本（Book）”造型；
   - 书本中轴线向上延伸出一条“向上生长的火箭轨迹与锁具（Safety & High Performance）”，象征高并发稳定与技术突破；
-  - 核心顶部嵌入一颗“AI 智能灵动星芒（Smart AI RAG）”，寓意大模型赋能智慧阅读。
+  - 核心顶部嵌入一颗“AI 智能灵动星芒（Smart AI Insights）”，寓意大模型赋能智慧阅读。
 - **色彩规范**：
   - 渐变主色（Primary）：`#2563EB`（科技湛蓝） $\to$ `#06B6D4`（未来青色）
   - 强调色（Accent）：`#10B981`（并发安全绿）与 `#F59E0B`（智性琥珀）
@@ -127,7 +126,7 @@ material-design-3
         fill="none" stroke="#10B981" stroke-width="3" stroke-linecap="round"/>
   <circle cx="100" cy="100" r="2.5" fill="#0F172A"/>
 
-  <!-- AI 智慧星芒 (Grounded-RAG 顶光) -->
+  <!-- AI 智慧星芒 (AI Insights 顶光) -->
   <path d="M 100 32 L 103 44 L 115 47 L 103 50 L 100 62 L 97 50 L 85 47 L 97 44 Z" 
         fill="url(#starGrad)" filter="url(#dropGlow)"/>
 </svg>
@@ -141,8 +140,8 @@ material-design-3
 ## Release v1.0.0 - Production-Ready & Defense-Grade Milestone 🎉
 
 ### 🚀 Highlights
-- **High-Concurrency Engine**: Zero-deadlock circulation locking and 100% stock consistency verified by 161 automated backend tests.
-- **Smart AI Suite**: Grounded-RAG insight engine and 4D hybrid recommendation decoupled from long-running database transactions.
+- **High-Concurrency Engine**: DAG-constrained deterministic circulation locking and 100% stock consistency verified by 165 automated backend tests.
+- **Smart AI Suite**: Structured metadata AI insight engine and stock-aware multi-criteria recommendation decoupled from database transactions.
 - **Enterprise Delivery**: Full Docker Compose multi-container stack, Nginx gateway, and automated database archiving scripts.
 - **Cross-Platform Experience**: Responsive Flutter Web client built with Material Design 3 and Riverpod state management.
 ```

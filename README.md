@@ -24,7 +24,7 @@
 ## 📖 项目简介
 
 ### 一句话介绍
-**《校园图书借阅系统》** 是一套面向现代高校图书馆的全栈数字化解决方案，依托响应式跨平台前端与云原生微服务架构，深度融合高并发行级排他锁、FIFO 闭环排队状态机、四维混合 AI 推荐以及 Grounded-RAG 智能图书导读技术。
+**《校园图书借阅系统》** 是一套面向现代高校图书馆的全栈数字化解决方案，依托响应式跨平台前端与容器化微服务编排架构，深度融合高并发行级排他锁、FIFO 闭环排队状态机、基于读者偏好与在架感知的多路加权推荐以及具备结构化元数据约束的智能导读生成引擎。
 
 ### 为什么需要这个系统？
 传统高校图书管理系统普遍存在三大致命痛点：
@@ -50,11 +50,11 @@
     </tr>
     <tr>
       <td align="center"><b>读者端 - 预约流转时间线</b></td>
-      <td align="center"><b>读者端 - AI 导读 (Grounded-RAG)</b></td>
+      <td align="center"><b>读者端 - AI 智能导读 (元数据约束生成)</b></td>
     </tr>
     <tr>
       <td><img src="https://via.placeholder.com/480x270/0f3460/ffffff?text=Reservation+Timeline" alt="预约时间线" width="450"/></td>
-      <td><img src="https://via.placeholder.com/480x270/533483/ffffff?text=Grounded-RAG+Insight" alt="AI导读" width="450"/></td>
+      <td><img src="https://via.placeholder.com/480x270/533483/ffffff?text=AI+Book+Insight" alt="AI导读" width="450"/></td>
     </tr>
     <tr>
       <td align="center"><b>管理端 - 馆员运营监控看板</b></td>
@@ -91,14 +91,14 @@ flowchart TD
         C1["Spring Security + JWT 无状态鉴权 (RBAC)"]
         C2["借还流通引擎 (确定性顺序行级悲观排他锁)"]
         C3["FIFO 闭环预约状态机 (归还事件主动唤醒)"]
-        C4["四维混合推荐模型 (内容 + 协同过滤 + 热度 + 物理库存)"]
-        C5["Grounded-RAG 导读 (外部 I/O 与 DB 事务物理解耦)"]
+        C4["多路加权推荐模型 (内容偏好 + 行为偏好 + 热度 + 在架库存感知)"]
+        C5["结构化元数据约束导读 (外部 I/O 与 DB 事务物理解耦)"]
         C6["EasyExcel SAX 流式大数据编目解析 (O(1) 内存)"]
     end
 
     subgraph DataLayer ["存储与基础设施层 (Infrastructure Layer)"]
         D1[("PostgreSQL 17\n关系型数据 & GIN 索引\nFlyway V1~V9 版本演进")]
-        D2[("Redis 8\nToken 托管 & 原子计数\nAOF 刷盘机制")]
+        D2[("Redis 8\n会话刷新凭据托管\n防刷频控与导读缓存")]
         D3["外部 LLM API (DeepSeek)\n+ RuleBased 本地熔断降级"]
     end
 
@@ -118,19 +118,19 @@ flowchart TD
 ### 1. 基于确定性锁拓扑的高并发借阅一致性控制
 - **痛点破除**：借阅业务（先锁 `Book` 后锁 `BookCopy`）与还书业务（先锁 `BookCopy` 后锁 `Book`）在高频交叉执行时形成循环等待死锁。
 - **架构方案**：推导死锁充分必要条件，确立**全局确定性锁顺序模型（Deterministic Lock Ordering）**。全系统所有涉及图书流转的事务，一律强制且仅能按照父实体到子实体（`Book` $\to$ `BookCopy`）拓扑顺序申请行级悲观排他锁（`SELECT ... FOR UPDATE`）。
-- **实测成果**：在 50 线程强争抢压测中，死锁率由 14.6% 彻底归零，超借率严格为 0。
+- **实测成果**：经过全链路加锁拓扑审计与 DAG 偏序约束，根除了借还与预约主干路径的循环等待死锁，在 50 线程强争抢压测中超借率严格为 0。
 
 ### 2. 具备自动唤醒与时效淘汰的闭环 FIFO 预约状态机
 - **痛点破除**：传统排队靠无序抢占，归还图书后缺乏主动流转，未到馆读者恶意长期占坑。
 - **架构方案**：基于数据库锁构建单调递增排队号；设计完整的状态生命周期（`WAITING` $\to$ `READY` $\to$ `FULFILLED` / `EXPIRED`）；在图书还书事务后触发领域事件毫秒级定向唤醒队首读者并物理锁定副本；结合整点定时调度器自动清退 48 小时未取书记录并自动顺延。
 
-### 3. 融入实时在架库存激励的四维混合 AI 推荐引擎
-- **痛点破除**：新进图书无借阅记录导致的冷启动瘫痪；传统算法推送“已全部借空”的图书导致用户体验断层。
-- **架构方案**：构建四维融合线性评分模型：
-  $$\text{Score} = 0.35 S_{\text{content}} + 0.35 S_{\text{cf}} + 0.20 S_{\text{pop}} + 0.10 S_{\text{stock}}$$
-  针对借阅量少于 3 本的新生自动衰减协同过滤权重至 0，无缝切换院系先验与全校热榜；将 Top-200 候选集筛选下推至 PostgreSQL 存储层，推荐计算耗时由 820ms 降至 **45ms** 以内。
+### 3. 基于读者偏好与在架感知的多路加权启发式推荐引擎
+- **痛点破除**：新进图书无借阅记录导致的冷启动瘫痪；传统算法推送"已全部借空"的图书导致用户体验断层。
+- **架构方案**：构建基于读者历史分类/作者偏好与在架库存感知的多路加权启发式推荐算法：
+  $$\text{Score}(u, i) = 0.4 \cdot S_{\text{content}} + 0.4 \cdot S_{\text{behavior}} + 0.2 \cdot S_{\text{pop}} + S_{\text{stock}}$$
+  其中 $S_{\text{content}}$ 基于读者历史借阅分类与作者匹配度打分，$S_{\text{behavior}}$ 基于读者阅读行为轨迹与分类命中度打分，$S_{\text{pop}}$ 为全校借阅热度归一化，$S_{\text{stock}}$ 为在架库存激励（可借时 $+15.0$ 分加成）。针对借阅量少于 3 本的新生自动切换为"全校热榜 + 在架优先"的冷启动推荐；将 Top-200 候选集筛选下推至 PostgreSQL 存储层，推荐计算耗时由 820ms 降至 **45ms** 以内。
 
-### 4. Grounded-RAG 事实约束与大模型长事务物理隔离
+### 4. 具备结构化元数据约束的智能导读生成引擎（支持云端 LLM 与本地规则引擎双模容灾切换）
 - **痛点破除**：外部通用大模型缺乏专业图书大纲导致凭空虚构（幻觉）；外部网络调用耗时 2~4 秒若置于 `@Transactional` 内将迅速占死数据库连接池。
 - **架构方案**：提取本馆严格编目的结构化元数据作为 Context 注入 Prompt，强行收敛大模型发散输出；将耗时网络调用彻底移出数据库事务环境，生成完毕后通过配置 `@Transactional(propagation = REQUIRES_NEW)` 的独立小事务在 2ms 内落盘并写入 Redis 缓存；内建 `RuleBasedMockAiProvider` 实现网络断流时的秒级降级兜底。
 
@@ -215,7 +215,7 @@ Campus-Library-Borrowing-System/
 │   │   ├── event/                 # 领域事件与异步通知监听器 (AFTER_COMMIT)
 │   │   ├── repository/            # Spring Data JPA 存储库 (悲观行级锁、复杂查询)
 │   │   ├── scheduler/             # 定时调度任务 (逾期检测、预约过期清退)
-│   │   ├── service/               # 核心业务接口与实现 (确定性加锁、RAG解耦、SAX导入)
+│   │   ├── service/               # 核心业务接口与实现 (确定性加锁、导读事务解耦、SAX导入)
 │   │   └── security/              # JWT 过滤器与方法级 RBAC 鉴权
 │   ├── src/main/resources/
 │   │   ├── db/migration/          # Flyway V1~V9 版本化 DDL/DML 迁移脚本
