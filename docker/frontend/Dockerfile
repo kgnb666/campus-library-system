@@ -62,6 +62,14 @@ COPY frontend/pubspec.yaml frontend/pubspec.lock ./
 RUN flutter pub get
 
 # 拷贝前端源码并编译 Web 生产产物。
+# 此前漏了这几行 COPY：pub get 之后直接执行 flutter build，容器里根本没有 lib/，
+# 构建必然以 'Target file "lib/main.dart" not found.' 失败。镜像与 CI 的
+# "Production images" 门禁都因此从未真正构建成功过。
+COPY frontend/lib ./lib
+COPY frontend/web ./web
+COPY frontend/assets ./assets
+COPY frontend/analysis_options.yaml ./
+
 # 两个 --dart-define 都必须透传：Flutter Web 的这些值是编译期常量，运行期无法覆盖。
 #   APP_ENV      决定走哪个环境分支（不注入就退回 dev，接口会指向 localhost）
 #   API_BASE_URL 显式指定接口地址（留空则运行时按页面 origin 推导）
