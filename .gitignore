@@ -46,7 +46,16 @@ logs/
 *.hprof
 
 # Environment local secrets
+# .env 含数据库口令与 JWT 签名密钥，必须永久禁止入库（2026-09 因曾提交而轮换过一次）
+.env
 .env.local
 .env.*.local
 *.pem
 *.key
+
+# Tooling runtime state
+# .mimosa 是安全扫描工具的 hook 基线缓存，内部保存了源文件快照（含历史密钥），
+# 必须忽略，否则 git add . 会把密钥副本一并提交。
+# 两种写法都保留: `.mimosa/` 匹配任意层级，`**/.mimosa/` 显式声明嵌套场景。
+.mimosa/
+**/.mimosa/

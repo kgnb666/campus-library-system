@@ -1,0 +1,38 @@
+# ==============================================================================
+# 行尾统一策略 - Campus Library Borrowing System
+#
+# 背景: Windows 默认 core.autocrlf=true 会在工作区把文本文件转成 CRLF。
+# 对本项目有两个真实且严重的后果:
+#   1. docker/scripts/*.sh 通过 bind mount 进入 Linux 容器后由 sh 执行，
+#      携带 \r 会触发 "not found" / 语法错误，备份与恢复服务直接失效；
+#   2. backend/mvnw 在 Alpine 构建阶段被 ./mvnw 执行，CRLF 会破坏 shebang，
+#      导致镜像构建失败。
+# 因此: 会在 Linux 侧执行的脚本强制 LF，Windows 专用脚本强制 CRLF。
+# ==============================================================================
+
+# 默认交由 git 判断文本/二进制
+* text=auto
+
+# 在 Linux 侧执行 → 必须 LF
+*.sh          text eol=lf
+*.sql         text eol=lf
+mvnw          text eol=lf
+*.yml         text eol=lf
+*.yaml        text eol=lf
+Dockerfile    text eol=lf
+.dockerignore text eol=lf
+
+# Windows 专用脚本 → CRLF（cmd.exe 对 LF-only 的 .bat 容错不佳）
+*.bat         text eol=crlf
+*.cmd         text eol=crlf
+*.ps1         text eol=crlf
+
+# 二进制文件，禁止任何行尾转换
+*.jar         binary
+*.png         binary
+*.jpg         binary
+*.jpeg        binary
+*.ico         binary
+*.gz          binary
+*.xlsx        binary
+*.pdf         binary

@@ -1,0 +1,45 @@
+# ==============================================================================
+# 仓库根构建上下文忽略规则
+# 适用场景: docker-compose.prod.yml 的 frontend 服务把构建上下文设为仓库根
+#           （因为 docker/frontend/Dockerfile 需同时访问 frontend/ 与 docker/）。
+# 目的: ① 缩小构建上下文 ② 防止 .env 等本地凭据被打进镜像层
+# ==============================================================================
+
+# 版本控制与工具运行时状态
+.git
+.gitignore
+.github
+.mimosa
+**/.mimosa
+
+# 本地环境与凭据（绝不进入构建上下文）
+.env
+.env.*
+*.pem
+*.key
+
+# 与 Flutter Web 构建无关的顶层内容
+backend
+docs
+scripts
+docker-compose.yml
+docker-compose.prod.yml
+start-all.ps1
+start-all.bat
+stop-all.ps1
+stop-all.bat
+README.md
+LICENSE
+docker/README.md
+
+# 日志与本地构建产物
+*.log
+logs/
+frontend/build/
+frontend/.dart_tool/
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+frontend/.packages
+frontend/.pub-cache/
+
+# 说明: docker/ 与 frontend/ 必须保留 —— 前者提供 nginx.conf，后者是构建源。

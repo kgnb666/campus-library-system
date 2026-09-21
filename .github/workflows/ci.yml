@@ -1,0 +1,155 @@
+# ==============================================================================
+# Campus Library Borrowing System - CI 门禁
+#
+# 存在的意义: 此前仓库没有任何 CI，构建错误与测试漂移长期无人发现
+#   - 后端 surefire 曾硬编码 C:\Temp 工作目录，在 Linux 上必然失败；
+#   - 前端镜像曾因 Flutter 版本与 pubspec SDK 约束不匹配而在 pub get 阶段挂掉。
+# 这两类问题只有"真的在干净环境里构建一次"才能暴露，所以本文件把
+# 测试与镜像构建都设为门禁。
+# ==============================================================================
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ----------------------------------------------------------------------------
+  # 后端: 单元 + 集成 + 并发测试
+  # 测试上下文连接真实的 PostgreSQL 与 Redis（application-test.yml 的默认端口
+  # 15437 / 16381），因此这里用 service 容器把它们映射到同样的端口。
+  #
+  # service 容器里建的库名就是测试库名（library_system_test），与本地约定一致：
+  # 测试夹具只写测试库，不会碰到演示/生产库。CI 的容器本身是临时的，但保留同名
+  # 可以让"本地能过、CI 能过"这一条少一个变量。
+  # ----------------------------------------------------------------------------
+  backend:
+    name: Backend (JDK 21 / mvn verify)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: library_system_test
+          POSTGRES_USER: library
+          POSTGRES_PASSWORD: library_password
+          TZ: Asia/Shanghai
+        ports:
+          - 15437:5432
+        options: >-
+          --health-cmd "pg_isready -U library -d library_system_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 16381:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Make Maven Wrapper executable
+        working-directory: backend
+        run: chmod +x mvnw
+
+      - name: Verify (compile + all tests)
+        working-directory: backend
+        run: ./mvnw -B verify
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-surefire-reports
+          path: backend/target/surefire-reports/
+          if-no-files-found: warn
+
+  # ----------------------------------------------------------------------------
+  # 前端: 静态分析 + 测试
+  # Flutter 版本与 Dockerfile 保持一致（前端镜像的构建阶段同样钉住该版本），
+  # 否则会出现"本机能测、镜像构建失败"的分叉。
+  # ----------------------------------------------------------------------------
+  frontend:
+    name: Frontend (Flutter 3.47.2 / analyze + test)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        working-directory: frontend
+        run: flutter pub get
+
+      - name: Static analysis
+        working-directory: frontend
+        run: flutter analyze
+
+      - name: Run tests
+        working-directory: frontend
+        run: flutter test
+
+  # ----------------------------------------------------------------------------
+  # 生产镜像构建
+  # 这是防止"镜像构建错误复发"的唯一手段：仅在 CI 里跑测试无法覆盖 Dockerfile
+  # 的多阶段构建、Flutter 版本对齐、Maven Wrapper 可用性等交付链问题。
+  # 构建门禁只需要能构建，因此凭据用随机生成的一次性值（不落任何真实密钥）。
+  # ----------------------------------------------------------------------------
+  docker-images:
+    name: Production images (compose build)
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Generate throwaway build-time credentials
+        run: |
+          {
+            echo "POSTGRES_DB=library_system"
+            echo "POSTGRES_USER=library"
+            echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)"
+            echo "REDIS_PASSWORD=$(openssl rand -hex 16)"
+            echo "JWT_SECRET=$(openssl rand -base64 48 | tr -d '\n')"
+            echo "DEMO_DATA_ENABLED=false"
+            echo "TZ=Asia/Shanghai"
+          } > .env
+
+      - name: Build backend and frontend images
+        run: docker compose -f docker-compose.prod.yml build
+
+      - name: Report image sizes
+        run: |
+          docker image inspect campus-library-backend --format 'backend  {{.Size}} bytes'
+          docker image inspect campus-library-frontend --format 'frontend {{.Size}} bytes'

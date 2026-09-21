@@ -14,7 +14,9 @@ WORKDIR /build
 COPY pom.xml ./
 COPY .mvn/ .mvn/
 COPY mvnw ./
-RUN chmod +x mvnw && ./mvnw dependency:go-offline -B || true
+# 注意: 此处不得使用 `|| true` 掩盖失败。依赖预取一旦失败必须让构建立即显式中断，
+# 否则问题会推迟到下一阶段，以更难定位的报错形式暴露。
+RUN chmod +x mvnw && ./mvnw -B dependency:go-offline
 
 # 编译打包应用程序
 COPY src/ ./src/
@@ -40,9 +42,11 @@ RUN apk add --no-cache curl tzdata && \
 RUN addgroup -S appgroup -g 10001 && \
     adduser -S appuser -u 10001 -G appgroup -h /app -s /sbin/nologin
 
-# 拷贝构建产物并设置属主
-COPY --from=builder /build/target/*.jar app.jar
-RUN chown -R appuser:appgroup /app
+# 拷贝构建产物并直接指定属主 (Stage 10-J)
+# 注意: 这里必须用 --chown 而不是先 COPY 再 RUN chown ——
+# "COPY + RUN chown" 会把同一个 jar 写进两个层（实测各 92.3MB），
+# 镜像凭空多出一份等价于 jar 体积的冗余层。--chown 在拷贝时就设定属主，只产生一层。
+COPY --from=builder --chown=appuser:appgroup /build/target/*.jar app.jar
 
 # 切换为非 root 用户
 USER appuser

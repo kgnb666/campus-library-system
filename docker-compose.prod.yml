@@ -14,17 +14,23 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-library_system}
       POSTGRES_USER: ${POSTGRES_USER:-library}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-library_password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required - generate with openssl rand -base64 24}
       TZ: ${TZ:-Asia/Shanghai}
     volumes:
       - campus_postgres_data:/var/lib/postgresql/data
-      - ./docker/scripts/backup.sh:/usr/local/bin/backup.sh:ro
-      - ./docker/scripts/restore.sh:/usr/local/bin/restore.sh:ro
+      # 说明: 备份/恢复脚本不再挂载进本容器。postgres 镜像内没有 docker CLI，
+      # 挂进来的脚本却调用 docker exec，必然 docker: not found（纯装饰性挂载）。
+      # 备份职责已移交下方独立的 backup 服务。
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-library} -d ${POSTGRES_DB:-library_system}"]
       interval: 5s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 1G
     networks:
       - campus_library_network
 
@@ -35,14 +41,66 @@ services:
     image: redis:8-alpine
     container_name: campus-library-redis
     restart: unless-stopped
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-library_redis_pwd}
+    environment:
+      # 口令经环境变量在容器内展开，避免出现在容器命令行
+      # （命令行对所有本机用户经 ps / docker inspect 可见，环境变量至少需要 docker 权限）
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required - generate with openssl rand -base64 24}
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
     volumes:
       - campus_redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-library_redis_pwd}", "ping"]
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
       interval: 5s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    networks:
+      - campus_library_network
+
+  # ---------------------------------------------------------------------------
+  # 3. 数据库自动冷备：PostgreSQL 客户端 + 定时循环
+  # ---------------------------------------------------------------------------
+  backup:
+    image: postgres:17-alpine
+    container_name: campus-library-backup
+    restart: unless-stopped
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGUSER: ${POSTGRES_USER:-library}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      PGDATABASE: ${POSTGRES_DB:-library_system}
+      BACKUP_DIR: /backups
+      RETENTION_DAYS: ${RETENTION_DAYS:-30}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+      # 落盘加密为可选：设置该变量后 backup.sh 会启用 gpg AES-256；
+      # 若设置了却没有 gpg，脚本会直接失败而不是静默产出明文备份
+      # （启用前需在本镜像内安装 gnupg，例如改用自建镜像 apk add --no-cache gnupg）。
+      BACKUP_ENCRYPTION_PASSPHRASE: ${BACKUP_ENCRYPTION_PASSPHRASE:-}
+    volumes:
+      # 备份目录挂载到具名卷，容器重建不丢；从宿主机取备份见 docs/Stage7-A-部署指南.md
+      - campus_backup_data:/backups
+      - ./docker/scripts:/scripts:ro
+    # 容器内直接 pg_dump（脚本会自动探测为"容器内模式"，不再经过 docker exec）
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          /bin/sh /scripts/backup.sh || echo "[WARN] 本次备份失败，将在下个周期重试"
+          sleep "$$BACKUP_INTERVAL_SECONDS"
+        done
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
     networks:
       - campus_library_network
 
@@ -63,11 +121,22 @@ services:
       DB_PORT: 5432
       DB_NAME: ${POSTGRES_DB:-library_system}
       DB_USER: ${POSTGRES_USER:-library}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-library_password}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-library_redis_pwd}
-      JWT_SECRET: ${JWT_SECRET:-c2VjdXJlLWNhbXB1cy1saWJyYXJ5LWJvcnJvd2luZy1zeXN0ZW0tc2VjcmV0LWtleS0yMDI2LTA5LTE2LWZvci1qcGEtc3ByaW5nLXNlY3VyaXR5}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - generate one with openssl rand -base64 48}
+      # 演示账号开关: 生产默认 false，由 V11 迁移禁用演示账号 (student_demo/librarian_demo/admin_demo)
+      DEMO_DATA_ENABLED: ${DEMO_DATA_ENABLED:-false}
+      # 前端域名白名单 (Stage 10-M)。生产网关形态下前后端同源，浏览器不触发 CORS，
+      # 因此默认只放本机回环即可；若前端部署在别的域名/端口，必须在 .env 里显式列出，
+      # 否则跨域请求会被拒绝（表现为前端所有接口失败但后端日志无异常）。
+      APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:-http://localhost:*,http://127.0.0.1:*}
+      # 首次部署管理员引导 (Stage 10-L)：默认全空 = 不创建任何账号，建号后请移除
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      BOOTSTRAP_ADMIN_NICKNAME: ${BOOTSTRAP_ADMIN_NICKNAME:-图书馆管理员}
       AI_DEEPSEEK_API_KEY: ${AI_DEEPSEEK_API_KEY:-${AI_API_KEY:-mock-ai-api-key}}
       AI_DEEPSEEK_BASE_URL: ${AI_DEEPSEEK_BASE_URL:-${AI_BASE_URL:-https://api.deepseek.com/v1}}
       AI_DEEPSEEK_MODEL: ${AI_DEEPSEEK_MODEL:-${AI_MODEL:-deepseek-chat}}
@@ -85,6 +154,12 @@ services:
       timeout: 5s
       start_period: 30s
       retries: 3
+    deploy:
+      resources:
+        # JVM 堆上限为 -Xmx768m，容器内存留出元空间/直接内存余量
+        limits:
+          cpus: "2.0"
+          memory: 1G
     networks:
       - campus_library_network
 
@@ -93,11 +168,25 @@ services:
   # ---------------------------------------------------------------------------
   frontend:
     build:
-      context: ./frontend
-      dockerfile: ../docker/frontend/Dockerfile
+      # 构建上下文必须是仓库根：docker/frontend/Dockerfile 需要同时访问
+      # frontend/ 源码与 docker/frontend/nginx.conf，二者分处不同顶层目录。
+      # 若把上下文设为 ./frontend，则 COPY docker/... 会解析为 frontend/docker/... 而失败。
+      context: .
+      dockerfile: docker/frontend/Dockerfile
+      args:
+        # 生产 API 根地址 (Stage 10-K)。默认留空 = 前端运行时从页面 origin 推导
+        # （同源部署形态），无需知道最终域名、换域名不用重新构建。
+        # 仅跨域部署时才在 .env 里指定绝对地址：
+        #   PUBLIC_API_BASE_URL=https://api.example.com/api/v1
+        API_BASE_URL: ${PUBLIC_API_BASE_URL:-}
     image: campus-library-frontend:latest
     container_name: campus-library-frontend
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
     networks:
       - campus_library_network
 
@@ -117,6 +206,11 @@ services:
     depends_on:
       - backend
       - frontend
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
     networks:
       - campus_library_network
 
@@ -129,6 +223,9 @@ volumes:
     name: campus_backend_logs
   campus_nginx_logs:
     name: campus_nginx_logs
+  # 备份落盘卷：容器重建不丢数据；取回宿主机的方式见部署指南
+  campus_backup_data:
+    name: campus_backup_data
 
 networks:
   campus_library_network:

@@ -230,7 +230,7 @@ $$\text{Thread B}: \text{Hold}(\text{Book}) \xrightarrow{\text{Waits for}} \text
 2. **`/actuator/**` 越权访问风险**：
    `SecurityConfig.java:54` 配置了 `.requestMatchers("/actuator/**", "/error").permitAll()`。虽然当前 `application.yml` 仅暴露了 `health,info,metrics`，但安全配置完全解除了 Spring Security 的防线。若后续配置文件调整，敏感监控端点将直接裸露；
 3. **JWT Secret 硬编码默认值**：
-   `application.yml` 中默认提供了 `c2VjdXJlLWNhbXB1cy1saWJyYXJ5...`，虽然生产环境支持通过环境变量覆盖，但若运维人员未在 `.env` 中修改，生产容器将使用通用弱密钥。
+   `application.yml` 中默认提供了一个随仓库公开的弱密钥（Base64 解码后为完整可读明文，任何克隆者都能用它伪造管理员令牌）。该默认值已于 Stage 10-A 移除并完成轮换，泄露值的 SHA-256 指纹被写入启动黑名单，继续使用会直接拒绝启动。历史教训：只要源码里存在"可用默认密钥"，运维人员不修改 `.env` 就会以通用弱密钥对外服务。
 
 ---
 
