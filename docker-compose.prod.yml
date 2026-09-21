@@ -179,6 +179,15 @@ services:
         # 仅跨域部署时才在 .env 里指定绝对地址：
         #   PUBLIC_API_BASE_URL=https://api.example.com/api/v1
         API_BASE_URL: ${PUBLIC_API_BASE_URL:-}
+        # 登录页演示快捷登录面板：默认关闭；演示部署在 .env 打开并填入该环境
+        # 真实存在的账号（用户名为空的角色不展示）。
+        SHOW_DEMO_ACCOUNTS: ${SHOW_DEMO_ACCOUNTS:-false}
+        DEMO_STUDENT_USERNAME: ${DEMO_STUDENT_USERNAME:-}
+        DEMO_STUDENT_PASSWORD: ${DEMO_STUDENT_PASSWORD:-}
+        DEMO_LIBRARIAN_USERNAME: ${DEMO_LIBRARIAN_USERNAME:-}
+        DEMO_LIBRARIAN_PASSWORD: ${DEMO_LIBRARIAN_PASSWORD:-}
+        DEMO_ADMIN_USERNAME: ${DEMO_ADMIN_USERNAME:-}
+        DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:-}
     image: campus-library-frontend:latest
     container_name: campus-library-frontend
     restart: unless-stopped

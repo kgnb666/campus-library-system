@@ -104,4 +104,36 @@ class EnvConfig {
   static const String appName = '校园图书借阅系统';
   static const int connectTimeoutMs = 15000;
   static const int receiveTimeoutMs = 15000;
+
+  // ---------------------------------------------------------------------------
+  // 登录页"答辩演示快捷登录"面板 (Stage 7-A / 部署可配)
+  //
+  // 此前该面板写死为 `if (kReleaseMode) return SizedBox.shrink();` —— 于是
+  // 任何 release 构建（也就是所有部署形态）都看不到它，演示时只能手敲账号。
+  //
+  // 现在改为显式开关：默认关闭（生产 release 不应把任何账号口令写进公开的
+  // JS 产物），演示部署用构建参数打开：
+  //   --dart-define=SHOW_DEMO_ACCOUNTS=true
+  //   --dart-define=DEMO_STUDENT_USERNAME=... --dart-define=DEMO_STUDENT_PASSWORD=...
+  // 用户名留空表示隐藏该行（例如只展示学生与馆员、不公开管理员口令）。
+  // ---------------------------------------------------------------------------
+
+  /// 是否展示演示快捷登录面板（Debug 构建始终展示，Release 需显式打开）
+  static const bool showDemoAccounts =
+      bool.fromEnvironment('SHOW_DEMO_ACCOUNTS', defaultValue: false);
+
+  static const String demoStudentUsername =
+      String.fromEnvironment('DEMO_STUDENT_USERNAME', defaultValue: 'student_demo');
+  static const String demoStudentPassword =
+      String.fromEnvironment('DEMO_STUDENT_PASSWORD', defaultValue: '123456');
+
+  static const String demoLibrarianUsername =
+      String.fromEnvironment('DEMO_LIBRARIAN_USERNAME', defaultValue: 'librarian_demo');
+  static const String demoLibrarianPassword =
+      String.fromEnvironment('DEMO_LIBRARIAN_PASSWORD', defaultValue: '123456');
+
+  static const String demoAdminUsername =
+      String.fromEnvironment('DEMO_ADMIN_USERNAME', defaultValue: 'admin_demo');
+  static const String demoAdminPassword =
+      String.fromEnvironment('DEMO_ADMIN_PASSWORD', defaultValue: '123456');
 }
