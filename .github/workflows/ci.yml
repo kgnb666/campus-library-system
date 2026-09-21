@@ -74,9 +74,21 @@ jobs:
         working-directory: backend
         run: chmod +x mvnw
 
+      # dev profile 的 datasource 默认库名是 library_system，而 service 容器只建了
+      # library_system_test；不显式覆盖的话，3 个以 dev profile 启动上下文的测试
+      # (ApplicationTests / HealthCheckTest / NotificationBatchBroadcastPathTest)
+      # 会以 FATAL: database "library_system" does not exist 失败。
       - name: Verify (compile + all tests)
         working-directory: backend
         run: ./mvnw -B verify
+        env:
+          DB_HOST: localhost
+          DB_PORT: '15437'
+          DB_NAME: library_system_test
+          DB_USER: library
+          DB_PASSWORD: library_password
+          REDIS_HOST: localhost
+          REDIS_PORT: '16381'
 
       - name: Upload test reports
         if: always()
