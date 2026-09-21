@@ -74,6 +74,11 @@ jobs:
         working-directory: backend
         run: chmod +x mvnw
 
+      # dev profile 不提供任何默认签名密钥（本地由项目根目录 .env 注入），
+      # 因此 CI 里必须显式给出一个：每个 run 现场随机生成，仓库中不落任何密钥明文。
+      - name: Generate ephemeral JWT secret for test contexts
+        run: echo "JWT_SECRET=$(openssl rand -base64 48)" >> "$GITHUB_ENV"
+
       # dev profile 的 datasource 默认库名是 library_system，而 service 容器只建了
       # library_system_test；不显式覆盖的话，3 个以 dev profile 启动上下文的测试
       # (ApplicationTests / HealthCheckTest / NotificationBatchBroadcastPathTest)
