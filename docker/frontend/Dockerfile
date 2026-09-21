@@ -24,13 +24,26 @@ ARG FLUTTER_VERSION=3.47.2
 ARG FLUTTER_STORAGE_BASE_URL=https://storage.googleapis.com
 ARG PUB_HOSTED_URL=https://pub.dev
 
+# apt 源镜像。默认官方 deb.debian.org；中国大陆构建建议换镜像：
+#   --build-arg APT_MIRROR=mirrors.tencentyun.com   (腾讯云内网，实测秒开)
+#   --build-arg APT_MIRROR=mirrors.cloud.tencent.com (公网)
+# 实测（2026-09-22，腾讯云广州）官方源在本步骤卡了十余分钟仍未完成 apt-get update。
+ARG APT_MIRROR=
+
 ENV FLUTTER_HOME=/opt/flutter
 ENV PATH="${FLUTTER_HOME}/bin:${PATH}"
 ENV PUB_CACHE=/root/.pub-cache
 ENV FLUTTER_STORAGE_BASE_URL="${FLUTTER_STORAGE_BASE_URL}"
 ENV PUB_HOSTED_URL="${PUB_HOSTED_URL}"
 
-RUN apt-get update && \
+RUN if [ -n "${APT_MIRROR}" ]; then \
+        for f in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do \
+            if [ -f "$f" ]; then \
+                sed -i "s|deb.debian.org|${APT_MIRROR}|g; s|security.debian.org|${APT_MIRROR}|g" "$f"; \
+            fi; \
+        done; \
+    fi && \
+    apt-get -o Acquire::Retries=3 update && \
     apt-get install -y --no-install-recommends \
         curl git unzip xz-utils ca-certificates && \
     rm -rf /var/lib/apt/lists/* && \
