@@ -1,11 +1,11 @@
 {
-    "name": "campus_library_frontend",
-    "short_name": "campus_library_frontend",
+    "name": "校园图书借阅系统",
+    "short_name": "图书借阅",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "智能 · 便捷 · 高效的校园知识空间",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

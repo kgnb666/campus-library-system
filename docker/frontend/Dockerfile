@@ -110,7 +110,10 @@ COPY frontend/analysis_options.yaml ./
 # 两个 --dart-define 都必须透传：Flutter Web 的这些值是编译期常量，运行期无法覆盖。
 #   APP_ENV      决定走哪个环境分支（不注入就退回 dev，接口会指向 localhost）
 #   API_BASE_URL 显式指定接口地址（留空则运行时按页面 origin 推导）
-RUN flutter build web --release --no-tree-shake-icons \
+# --no-web-resources-cdn: 把 CanvasKit 等 Web 引擎资源打进产物、由本站 nginx 提供，
+# 而不是运行时去 www.gstatic.com 拉。中国大陆网络对 gstatic 普遍不通或极慢，
+# 实测表现为首屏长时间空白（Flutter 引擎报 "Failed to fetch ... canvaskit.wasm"）。
+RUN flutter build web --release --no-tree-shake-icons --no-web-resources-cdn \
         --dart-define=APP_ENV="${APP_ENV}" \
         --dart-define=API_BASE_URL="${API_BASE_URL}" \
         --dart-define=SHOW_DEMO_ACCOUNTS="${SHOW_DEMO_ACCOUNTS}" \
