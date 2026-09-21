@@ -93,7 +93,10 @@ COPY --from=builder /build/build/web /usr/share/nginx/html
 # 暴露 Web 端口
 EXPOSE 80
 
+# 必须用 127.0.0.1 而不是 localhost：容器内 /etc/hosts 里 localhost 同时映射到
+# ::1 与 127.0.0.1，而 nginx 的 `listen 80` 只绑定 IPv4，wget 先试 ::1 会拿到
+# Connection refused，导致健康检查恒为 unhealthy（实测 2026-09-21 腾讯云部署）。
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD wget -q --spider http://localhost/ || exit 1
+    CMD wget -q --spider http://127.0.0.1/ || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]
