@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../data/book_repository.dart';
+import '../../../core/network/api_error_mapper.dart';
 import '../domain/book_model.dart';
 import '../domain/category_model.dart';
 import '../domain/category_tree_model.dart';
@@ -43,8 +45,12 @@ class SearchHistoryNotifier extends StateNotifier<List<String>> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final history = prefs.getStringList(_storageKey) ?? [];
+      // 构造函数发起的异步加载可能晚于 notifier 销毁（例如登出后容器被释放），
+      // 此时写 state 会抛 "Tried to use SearchHistoryNotifier after dispose"
+      if (!mounted) return;
       state = history;
     } catch (_) {
+      if (!mounted) return;
       state = [];
     }
   }
@@ -138,6 +144,10 @@ class BookListNotifier extends StateNotifier<BookListState> {
   final Ref _ref;
   Timer? _debounceTimer;
 
+  /// 请求序号：快速切换分类/排序时，只允许最新一次请求的结果写入状态，
+  /// 避免先发出的旧响应后到达并覆盖新结果
+  int _requestSeq = 0;
+
   BookListNotifier(this._repository, this._ref) : super(const BookListState()) {
     loadInitial();
   }
@@ -177,6 +187,8 @@ class BookListNotifier extends StateNotifier<BookListState> {
   }
 
   Future<void> _fetchPage({required int page, required bool isRefresh}) async {
+    final seq = ++_requestSeq;
+
     final categoryId = _ref.read(selectedCategoryFilterProvider);
     final keyword = _ref.read(bookSearchKeywordProvider);
     final sort = _ref.read(bookSortProvider);
@@ -194,8 +206,11 @@ class BookListNotifier extends StateNotifier<BookListState> {
           availableOnly: availableOnly,
           sort: sort,
         );
-      } catch (_) {
-        // 降级兼容基础 getBooks 接口 (如部分纯 Mock 场景)
+      } on DioException catch (e) {
+        // 仅当高级检索接口确实不存在（404）时才降级到基础列表接口。
+        // 其余错误（403/500/解析失败）必须上抛：原先的无条件静默降级会把它们
+        // 统统伪装成"没有结果的列表"，历史上正是一次静默降级掩盖了响应字段错位问题。
+        if (e.response?.statusCode != 404) rethrow;
         result = await _repository.getBooks(
           page: page,
           size: 10,
@@ -204,25 +219,44 @@ class BookListNotifier extends StateNotifier<BookListState> {
         );
       }
 
+      // 丢弃过期响应（期间用户已切换分类/排序或发起了新的加载）
+      if (!mounted || seq != _requestSeq) return;
+
       final newItems = result['items'] as List<BookModel>;
-      final updatedList = (page == 1) ? newItems : [...state.books, ...newItems];
+      // 追加分页时按 id 去重，避免翻页过程中因数据变动出现重复条目
+      final updatedList = (page == 1)
+          ? newItems
+          : _dedupeById([...state.books, ...newItems]);
 
       state = state.copyWith(
         isLoading: false,
         isRefreshing: false,
         books: updatedList,
-        page: result['page'] as int,
-        total: result['total'] as int,
-        hasNext: result['hasNext'] as bool,
+        page: result['page'] as int? ?? page,
+        total: result['total'] as int? ?? state.books.length + newItems.length,
+        hasNext: result['hasNext'] as bool? ?? false,
         errorMessage: null,
       );
     } catch (e) {
+      if (!mounted || seq != _requestSeq) return;
       state = state.copyWith(
         isLoading: false,
         isRefreshing: false,
-        errorMessage: '加载图书失败: ${e.toString()}',
+        errorMessage: '加载图书失败：${mapApiError(e)}',
       );
     }
+  }
+
+  /// 按 id 去重并保持原有先后顺序
+  static List<BookModel> _dedupeById(List<BookModel> items) {
+    final seen = <int>{};
+    final result = <BookModel>[];
+    for (final item in items) {
+      if (seen.add(item.id)) {
+        result.add(item);
+      }
+    }
+    return result;
   }
 }
 

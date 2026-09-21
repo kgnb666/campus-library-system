@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/network/api_error_mapper.dart';
 import '../data/borrow_repository.dart';
 import '../domain/borrow_record_model.dart';
 
@@ -49,19 +50,22 @@ class ActiveBorrowsNotifier extends StateNotifier<ActiveBorrowsState> {
 
     try {
       final res = await _repository.getMyActiveRecords(page: targetPage);
+      // notifier 可能在网络往返期间被销毁（登出会 invalidate 本 Provider）
+      if (!mounted) return;
       final newItems = res['items'] as List<BorrowRecordModel>;
-      final hasNext = res['hasNext'] as bool;
+      final hasNext = res['hasNext'] as bool? ?? false;
 
       state = state.copyWith(
-        records: refresh ? newItems : [...state.records, ...newItems],
+        records: refresh ? newItems : _dedupeBorrowRecords([...state.records, ...newItems]),
         isLoading: false,
         hasMore: hasNext,
         page: targetPage + 1,
       );
     } catch (e) {
+      if (!mounted) return;
       state = state.copyWith(
         isLoading: false,
-        errorMessage: e.toString(),
+        errorMessage: mapApiError(e),
       );
     }
   }
@@ -142,22 +146,36 @@ class BorrowHistoryNotifier extends StateNotifier<BorrowHistoryState> {
 
     try {
       final res = await _repository.getMyHistoryRecords(page: targetPage);
+      if (!mounted) return;
       final newItems = res['items'] as List<BorrowRecordModel>;
-      final hasNext = res['hasNext'] as bool;
+      final hasNext = res['hasNext'] as bool? ?? false;
 
       state = state.copyWith(
-        records: refresh ? newItems : [...state.records, ...newItems],
+        records: refresh ? newItems : _dedupeBorrowRecords([...state.records, ...newItems]),
         isLoading: false,
         hasMore: hasNext,
         page: targetPage + 1,
       );
     } catch (e) {
+      if (!mounted) return;
       state = state.copyWith(
         isLoading: false,
-        errorMessage: e.toString(),
+        errorMessage: mapApiError(e),
       );
     }
   }
+}
+
+/// 按 id 去重并保持原有先后顺序（翻页期间数据变动会产生重复条目）
+List<BorrowRecordModel> _dedupeBorrowRecords(List<BorrowRecordModel> items) {
+  final seen = <int>{};
+  final result = <BorrowRecordModel>[];
+  for (final item in items) {
+    if (seen.add(item.id)) {
+      result.add(item);
+    }
+  }
+  return result;
 }
 
 final borrowHistoryProvider =

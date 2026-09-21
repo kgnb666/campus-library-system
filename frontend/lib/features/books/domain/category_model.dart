@@ -20,7 +20,7 @@ class CategoryModel {
 
   factory CategoryModel.fromJson(Map<String, dynamic> json) {
     return CategoryModel(
-      id: json['id'] as int,
+      id: (json['id'] as num?)?.toInt() ?? 0,
       parentId: json['parentId'] as int?,
       code: json['code'] as String? ?? '',
       name: json['name'] as String? ?? '',

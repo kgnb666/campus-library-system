@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../auth/presentation/auth_provider.dart';
 import '../domain/book_model.dart';
+import '../../auth/domain/permissions.dart';
 import 'book_provider.dart';
 
 /// 图书馆藏目录列表页面 (Stage 2-B 检索增强与编目体验优化)
@@ -55,12 +56,8 @@ class _BookListScreenState extends ConsumerState<BookListScreen> {
     final searchHistory = ref.watch(searchHistoryProvider);
 
     final currentUser = ref.watch(authStateProvider).user;
-    final isLibrarianOrAdmin = currentUser?.roles.any((role) =>
-            role == 'LIBRARIAN' ||
-            role == 'ADMIN' ||
-            role == 'ROLE_ADMIN' ||
-            role == 'ROLE_LIBRARIAN') ??
-        false;
+    // 按权限码判断，而不是角色名：与后端 @PreAuthorize 的判据保持一致（Stage 10-O）
+    final canOpenCatalogWorkbench = currentUser.canAny(Permissions.catalogWorkbench);
 
     return Scaffold(
       appBar: AppBar(
@@ -96,7 +93,7 @@ class _BookListScreenState extends ConsumerState<BookListScreen> {
             },
           ),
           // 管理员专属编目工作台入口
-          if (isLibrarianOrAdmin)
+          if (canOpenCatalogWorkbench)
             IconButton(
               icon: const Icon(Icons.admin_panel_settings_outlined),
               tooltip: '编目工作台',
@@ -264,7 +261,7 @@ class _BookListScreenState extends ConsumerState<BookListScreen> {
           ),
         ],
       ),
-      floatingActionButton: isLibrarianOrAdmin
+      floatingActionButton: canOpenCatalogWorkbench
           ? FloatingActionButton.extended(
               onPressed: () => context.push('/admin/catalog'),
               icon: const Icon(Icons.manage_accounts),

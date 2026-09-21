@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/network/api_error_mapper.dart';
 import '../data/reservation_repository.dart';
 import '../domain/reservation_model.dart';
 import '../../borrow/domain/borrow_record_model.dart';
@@ -47,6 +48,8 @@ class MyReservationsNotifier extends StateNotifier<MyReservationsState> {
 
     try {
       final res = await _repository.getMyReservations(status: status, page: 1, size: 50);
+      // notifier 可能在网络往返期间被销毁（登出会 invalidate 本 Provider）
+      if (!mounted) return;
       final items = res['items'] as List<ReservationModel>;
 
       state = state.copyWith(
@@ -54,9 +57,10 @@ class MyReservationsNotifier extends StateNotifier<MyReservationsState> {
         isLoading: false,
       );
     } catch (e) {
+      if (!mounted) return;
       state = state.copyWith(
         isLoading: false,
-        errorMessage: e.toString(),
+        errorMessage: mapApiError(e),
       );
     }
   }

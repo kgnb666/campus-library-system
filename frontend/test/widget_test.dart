@@ -29,7 +29,7 @@ void main() {
           aiRecommendationsProvider.overrideWith(
             (ref) => FakeAiRecommendationsNotifier(),
           ),
-          popularBooksRankingProvider(null).overrideWith(
+          popularBooksRankingProvider.overrideWith(
             (ref) => Future.value([]),
           ),
         ],
@@ -72,7 +72,20 @@ class FakeAuthNotifier extends StateNotifier<AuthState> implements AuthNotifier 
   Future<bool> login({required String username, required String password}) async => true;
 
   @override
+  Future<bool> register({
+    required String username,
+    required String email,
+    required String password,
+    required String nickname,
+  }) async => true;
+
+  @override
   Future<void> logout() async {
+    state = AuthState.unauthenticated();
+  }
+
+  @override
+  void markSessionExpired() {
     state = AuthState.unauthenticated();
   }
 }

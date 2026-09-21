@@ -1,5 +1,7 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../../../core/network/api_error_mapper.dart';
 import '../../../data/book_repository.dart';
 
 /// Excel 图书批量编目导入对话框 (Stage 6-B)
@@ -16,29 +18,64 @@ class _ExcelImportDialogState extends ConsumerState<ExcelImportDialog> {
   bool _isUploading = false;
   Map<String, dynamic>? _importResult;
   String? _errorMessage;
+  String? _selectedFileName;
 
-  Future<void> _doImportSimulated() async {
+  /// 选择真实 Excel 文件并上传。
+  ///
+  /// 原实现把 4 个写死的字节（伪装的 zip 头）当作"模拟 Excel 数据包"上传，
+  /// 既不可能导入成功，也让"Excel 批量编目导入"这一能力在界面上形同虚构。
+  /// 本实现改为由用户选择真实文件；无法打开文件选择器时明确报错，绝不伪造上传。
+  Future<void> _pickAndImport() async {
     setState(() {
-      _isUploading = true;
       _errorMessage = null;
       _importResult = null;
     });
 
+    FilePickerResult? picked;
     try {
-      // 模拟标准 Excel 数据包上传 (在真实客户端中由 file_picker 选定)
-      final dummyBytes = [0x50, 0x4B, 0x03, 0x04]; // PK zip header
-      final repo = ref.read(bookRepositoryProvider);
-      final res = await repo.importBooksExcel(dummyBytes, 'books_batch_import.xlsx');
+      picked = await FilePicker.pickFiles(
+        dialogTitle: '选择图书编目 Excel 文件',
+        type: FileType.custom,
+        allowedExtensions: const ['xlsx', 'xls'],
+        // Web 端没有本地路径，只能按字节流读取；后端单文件上限 50MB
+        withData: true,
+      );
+    } catch (e) {
+      setState(() => _errorMessage = '当前环境无法打开文件选择器：${mapApiError(e)}');
+      return;
+    }
 
+    if (picked == null || picked.files.isEmpty) {
+      return; // 用户取消了选择
+    }
+
+    final file = picked.files.single;
+    final bytes = file.bytes;
+    if (bytes == null || bytes.isEmpty) {
+      setState(() => _errorMessage = '未能读取所选文件内容，请重新选择');
+      return;
+    }
+
+    setState(() {
+      _isUploading = true;
+      _selectedFileName = file.name;
+    });
+
+    try {
+      final res = await ref
+          .read(bookRepositoryProvider)
+          .importBooksExcel(bytes, file.name);
+      if (!mounted) return;
       setState(() {
         _isUploading = false;
         _importResult = res;
       });
       widget.onImportSuccess?.call();
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isUploading = false;
-        _errorMessage = '上传处理失败: ${e.toString()}';
+        _errorMessage = '上传处理失败：${mapApiError(e)}';
       });
     }
   }
@@ -154,9 +191,13 @@ class _ExcelImportDialogState extends ConsumerState<ExcelImportDialog> {
                   children: [
                     Icon(Icons.cloud_upload_outlined, size: 48, color: theme.colorScheme.primary),
                     const SizedBox(height: 8),
-                    const Text('选择包含图书信息的 Excel 文件'),
+                    const Text('点击下方按钮选择包含图书信息的 Excel 文件'),
                     const SizedBox(height: 4),
                     Text('标准表头：ISBN*、书名*、著者*、分类编码*、馆藏册数*等', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                    if (_selectedFileName != null) ...[
+                      const SizedBox(height: 6),
+                      Text('已选择：$_selectedFileName', style: TextStyle(fontSize: 11, color: theme.colorScheme.primary)),
+                    ],
                   ],
                 ),
               ),
@@ -170,9 +211,9 @@ class _ExcelImportDialogState extends ConsumerState<ExcelImportDialog> {
         ),
         if (!_isUploading && _importResult == null)
           FilledButton.icon(
-            onPressed: _doImportSimulated,
+            onPressed: _pickAndImport,
             icon: const Icon(Icons.file_upload, size: 18),
-            label: const Text('开始导入'),
+            label: const Text('选择文件并导入'),
           ),
       ],
     );

@@ -31,9 +31,6 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # The following adds the Cupertino Icons font to your application.
-  # Use with the CupertinoIcons class for iOS style icons.
-  cupertino_icons: ^1.0.8
 
   # State Management
   flutter_riverpod: ^2.5.1
@@ -49,6 +46,7 @@ dependencies:
 
   # Local Preferences for Search History
   shared_preferences: ^2.3.2
+  file_picker: ^11.0.3
 
 dev_dependencies:
   flutter_test:
@@ -82,6 +80,23 @@ flutter:
 
   # For details regarding adding assets from package dependencies, see
   # https://flutter.dev/to/asset-from-package
+
+  # 全局中文字体 (Stage 10-P)
+  #
+  # 为什么必须自带：Flutter Web（CanvasKit）的中日韩字形是**运行时**从
+  # fonts.gstatic.com 拉 Noto 字体的。校园网/国内网络访问不到 Google 时，
+  # 界面上的汉字会全部渲染成方块，表现为"能登录、但满屏 □□□"。
+  # 自带字体后渲染不再依赖任何外部域名。
+  #
+  # 该字体由 Noto Sans SC 子集裁剪而来（6219 字形 ≈ 1.8MB）：
+  #   - 覆盖：词频前 6000 汉字 + 项目/文档/线上库全部用字 + ASCII/全角/标点；
+  #   - 许可：SIL OFL 1.1（assets/fonts/OFL-1.1.txt），版权归 Adobe/Google；
+  #     因属修改版，按 OFL 的保留字体名条款未沿用官方字体名，内部名已改为中性名；
+  #   - 重新生成：scripts/tools/build-cjk-font-subset.ps1
+  fonts:
+    - family: CampusLibraryCJK
+      fonts:
+        - asset: assets/fonts/CampusLibraryCJK-Subset-Regular.ttf
 
   # To add custom fonts to your application, add a fonts section here,
   # in this "flutter" section. Each entry in this list should have a

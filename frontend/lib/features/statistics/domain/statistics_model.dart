@@ -1,112 +1,153 @@
-/// 用户个人阅读画像模型 (Stage 5)
+/// 用户个人阅读画像模型 (Stage 5，Stage 10-D 按后端真实响应字段对齐)
+///
+/// 后端 `MyReadingStatisticsResponse` 的实际字段（已用真实接口核对）:
+///   userId, username, nickname, totalBorrowedCount, activeBorrowingCount,
+///   returnedCount, overdueCount, onTimeReturnRate, favoriteCategory,
+///   estimatedSavedMoney, categoryPreferences[{categoryName,count,percentage}],
+///   monthlyTrends[{month,count}]
+///
+/// 原实现的字段名与类型均与后端不符（activeBorrowedCount / estimatedMoneySaved /
+/// categoryDistribution(Map) / monthlyBorrowTrend(Map)），导致"当前在借""累计节省"
+/// 恒为 0、分类偏好与月度趋势恒为空。
+class CategoryPreferenceModel {
+  final String categoryName;
+  final int count;
+  final double percentage;
+
+  const CategoryPreferenceModel({
+    required this.categoryName,
+    required this.count,
+    required this.percentage,
+  });
+
+  factory CategoryPreferenceModel.fromJson(Map<String, dynamic> json) {
+    return CategoryPreferenceModel(
+      categoryName: json['categoryName'] as String? ?? '未分类',
+      count: (json['count'] as num?)?.toInt() ?? 0,
+      percentage: (json['percentage'] as num?)?.toDouble() ?? 0.0,
+    );
+  }
+}
+
+/// 月度借阅趋势项
+class MonthlyTrendModel {
+  final String month;
+  final int count;
+
+  const MonthlyTrendModel({required this.month, required this.count});
+
+  factory MonthlyTrendModel.fromJson(Map<String, dynamic> json) {
+    return MonthlyTrendModel(
+      month: json['month'] as String? ?? '',
+      count: (json['count'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
 class MyReadingStatisticsModel {
   final int totalBorrowedCount;
-  final int activeBorrowedCount;
+  final int activeBorrowingCount;
   final int returnedCount;
   final int overdueCount;
   final double onTimeReturnRate;
-  final double estimatedMoneySaved;
-  final Map<String, int> categoryDistribution;
-  final Map<String, int> monthlyBorrowTrend;
+  final double estimatedSavedMoney;
+  final String? favoriteCategory;
+  final List<CategoryPreferenceModel> categoryPreferences;
+  final List<MonthlyTrendModel> monthlyTrends;
+
+  /// 阅读等级。后端不提供该字段，由累计借阅册数在前端推导，
+  /// 避免为了一个展示标签而在接口契约里编造字段。
   final String readerLevel;
 
   const MyReadingStatisticsModel({
     required this.totalBorrowedCount,
-    required this.activeBorrowedCount,
+    required this.activeBorrowingCount,
     required this.returnedCount,
     required this.overdueCount,
     required this.onTimeReturnRate,
-    required this.estimatedMoneySaved,
-    required this.categoryDistribution,
-    required this.monthlyBorrowTrend,
+    required this.estimatedSavedMoney,
+    this.favoriteCategory,
+    required this.categoryPreferences,
+    required this.monthlyTrends,
     required this.readerLevel,
   });
 
   factory MyReadingStatisticsModel.fromJson(Map<String, dynamic> json) {
-    final catRaw = json['categoryDistribution'] as Map<String, dynamic>? ?? {};
-    final categoryDist = catRaw.map((k, v) => MapEntry(k, (v as num).toInt()));
+    final prefsRaw = json['categoryPreferences'] as List<dynamic>? ?? [];
+    final prefs = prefsRaw
+        .map((e) => CategoryPreferenceModel.fromJson(e as Map<String, dynamic>))
+        .toList();
 
-    final trendRaw = json['monthlyBorrowTrend'] as Map<String, dynamic>? ?? {};
-    final monthlyTrend = trendRaw.map((k, v) => MapEntry(k, (v as num).toInt()));
+    final trendsRaw = json['monthlyTrends'] as List<dynamic>? ?? [];
+    final trends = trendsRaw
+        .map((e) => MonthlyTrendModel.fromJson(e as Map<String, dynamic>))
+        .toList();
+
+    final totalBorrowed = (json['totalBorrowedCount'] as num?)?.toInt() ?? 0;
 
     return MyReadingStatisticsModel(
-      totalBorrowedCount: json['totalBorrowedCount'] as int? ?? 0,
-      activeBorrowedCount: json['activeBorrowedCount'] as int? ?? 0,
-      returnedCount: json['returnedCount'] as int? ?? 0,
-      overdueCount: json['overdueCount'] as int? ?? 0,
+      totalBorrowedCount: totalBorrowed,
+      activeBorrowingCount: (json['activeBorrowingCount'] as num?)?.toInt() ?? 0,
+      returnedCount: (json['returnedCount'] as num?)?.toInt() ?? 0,
+      overdueCount: (json['overdueCount'] as num?)?.toInt() ?? 0,
       onTimeReturnRate: (json['onTimeReturnRate'] as num?)?.toDouble() ?? 100.0,
-      estimatedMoneySaved: (json['estimatedMoneySaved'] as num?)?.toDouble() ?? 0.0,
-      categoryDistribution: categoryDist,
-      monthlyBorrowTrend: monthlyTrend,
-      readerLevel: json['readerLevel'] as String? ?? '阅读探索者',
+      estimatedSavedMoney: (json['estimatedSavedMoney'] as num?)?.toDouble() ?? 0.0,
+      favoriteCategory: json['favoriteCategory'] as String?,
+      categoryPreferences: prefs,
+      monthlyTrends: trends,
+      readerLevel: _deriveReaderLevel(totalBorrowed),
     );
   }
 
-  Map<String, dynamic> toJson() {
-    return {
-      'totalBorrowedCount': totalBorrowedCount,
-      'activeBorrowedCount': activeBorrowedCount,
-      'returnedCount': returnedCount,
-      'overdueCount': overdueCount,
-      'onTimeReturnRate': onTimeReturnRate,
-      'estimatedMoneySaved': estimatedMoneySaved,
-      'categoryDistribution': categoryDistribution,
-      'monthlyBorrowTrend': monthlyBorrowTrend,
-      'readerLevel': readerLevel,
-    };
+  static String _deriveReaderLevel(int totalBorrowed) {
+    if (totalBorrowed >= 20) return '藏书阁常客';
+    if (totalBorrowed >= 10) return '阅读达人';
+    if (totalBorrowed >= 3) return '阅读探索者';
+    return '阅读新手';
   }
 }
 
-/// 全馆运营宏观大盘模型 (Stage 5)
+/// 全馆运营宏观大盘模型 (Stage 5，Stage 10-D 按后端真实响应字段对齐)
+///
+/// 后端 `LibraryOverviewStatisticsResponse` 的实际字段:
+///   totalBookTitles, totalBookCopies, availableCopies, borrowedCopies,
+///   maintenanceCopies, stockUtilizationRate, totalUsers,
+///   totalBorrowTransactions, activeReservations
 class LibraryOverviewStatisticsModel {
-  final int totalBooks;
-  final int totalCopies;
+  final int totalBookTitles;
+  final int totalBookCopies;
   final int availableCopies;
   final int borrowedCopies;
+  final int maintenanceCopies;
+  final double stockUtilizationRate;
   final int totalUsers;
-  final int totalBorrowRecords;
-  final int activeBorrowRecords;
-  final int totalReservations;
-  final int waitingReservations;
+  final int totalBorrowTransactions;
+  final int activeReservations;
 
   const LibraryOverviewStatisticsModel({
-    required this.totalBooks,
-    required this.totalCopies,
+    required this.totalBookTitles,
+    required this.totalBookCopies,
     required this.availableCopies,
     required this.borrowedCopies,
+    required this.maintenanceCopies,
+    required this.stockUtilizationRate,
     required this.totalUsers,
-    required this.totalBorrowRecords,
-    required this.activeBorrowRecords,
-    required this.totalReservations,
-    required this.waitingReservations,
+    required this.totalBorrowTransactions,
+    required this.activeReservations,
   });
 
   factory LibraryOverviewStatisticsModel.fromJson(Map<String, dynamic> json) {
     return LibraryOverviewStatisticsModel(
-      totalBooks: json['totalBooks'] as int? ?? 0,
-      totalCopies: json['totalCopies'] as int? ?? 0,
-      availableCopies: json['availableCopies'] as int? ?? 0,
-      borrowedCopies: json['borrowedCopies'] as int? ?? 0,
-      totalUsers: json['totalUsers'] as int? ?? 0,
-      totalBorrowRecords: json['totalBorrowRecords'] as int? ?? 0,
-      activeBorrowRecords: json['activeBorrowRecords'] as int? ?? 0,
-      totalReservations: json['totalReservations'] as int? ?? 0,
-      waitingReservations: json['waitingReservations'] as int? ?? 0,
+      totalBookTitles: (json['totalBookTitles'] as num?)?.toInt() ?? 0,
+      totalBookCopies: (json['totalBookCopies'] as num?)?.toInt() ?? 0,
+      availableCopies: (json['availableCopies'] as num?)?.toInt() ?? 0,
+      borrowedCopies: (json['borrowedCopies'] as num?)?.toInt() ?? 0,
+      maintenanceCopies: (json['maintenanceCopies'] as num?)?.toInt() ?? 0,
+      stockUtilizationRate: (json['stockUtilizationRate'] as num?)?.toDouble() ?? 0.0,
+      totalUsers: (json['totalUsers'] as num?)?.toInt() ?? 0,
+      totalBorrowTransactions: (json['totalBorrowTransactions'] as num?)?.toInt() ?? 0,
+      activeReservations: (json['activeReservations'] as num?)?.toInt() ?? 0,
     );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'totalBooks': totalBooks,
-      'totalCopies': totalCopies,
-      'availableCopies': availableCopies,
-      'borrowedCopies': borrowedCopies,
-      'totalUsers': totalUsers,
-      'totalBorrowRecords': totalBorrowRecords,
-      'activeBorrowRecords': activeBorrowRecords,
-      'totalReservations': totalReservations,
-      'waitingReservations': waitingReservations,
-    };
   }
 }
 
@@ -130,24 +171,13 @@ class PopularBookRankingModel {
 
   factory PopularBookRankingModel.fromJson(Map<String, dynamic> json) {
     return PopularBookRankingModel(
-      bookId: json['bookId'] as int? ?? 0,
+      bookId: (json['bookId'] as num?)?.toInt() ?? 0,
       title: json['title'] as String? ?? '',
       author: json['author'] as String? ?? '',
       coverUrl: json['coverUrl'] as String?,
-      borrowCount: json['borrowCount'] as int? ?? 0,
-      availableCopies: json['availableCopies'] as int? ?? 0,
+      borrowCount: (json['borrowCount'] as num?)?.toInt() ?? 0,
+      availableCopies: (json['availableCopies'] as num?)?.toInt() ?? 0,
     );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'bookId': bookId,
-      'title': title,
-      'author': author,
-      'coverUrl': coverUrl,
-      'borrowCount': borrowCount,
-      'availableCopies': availableCopies,
-    };
   }
 }
 
@@ -166,21 +196,18 @@ class CategoryCirculationModel {
   factory CategoryCirculationModel.fromJson(Map<String, dynamic> json) {
     return CategoryCirculationModel(
       categoryName: json['categoryName'] as String? ?? '',
-      borrowCount: json['borrowCount'] as int? ?? 0,
+      borrowCount: (json['borrowCount'] as num?)?.toInt() ?? 0,
       percentage: (json['percentage'] as num?)?.toDouble() ?? 0.0,
     );
   }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'categoryName': categoryName,
-      'borrowCount': borrowCount,
-      'percentage': percentage,
-    };
-  }
 }
 
-/// 推荐效果评估真实指标模型 (Stage 5)
+/// 推荐效果评估真实指标模型 (Stage 5，Stage 10-D 对齐后端字段名)
+///
+/// 后端 `RecommendationMetricsResponse` 的实际字段:
+///   totalImpressions, totalClicks, totalBorrows, totalFeedbackCount,
+///   likeCount, dislikeCount, ctr, borrowConversionRate, satisfactionRate
+/// （原实现读 totalFeedback / clickThroughRate，两处恒为 0）
 class RecommendationMetricsModel {
   final int totalImpressions;
   final int totalClicks;
@@ -206,30 +233,16 @@ class RecommendationMetricsModel {
 
   factory RecommendationMetricsModel.fromJson(Map<String, dynamic> json) {
     return RecommendationMetricsModel(
-      totalImpressions: json['totalImpressions'] as int? ?? 0,
-      totalClicks: json['totalClicks'] as int? ?? 0,
-      totalBorrows: json['totalBorrows'] as int? ?? 0,
-      totalFeedback: json['totalFeedback'] as int? ?? 0,
-      likeCount: json['likeCount'] as int? ?? 0,
-      dislikeCount: json['dislikeCount'] as int? ?? 0,
-      clickThroughRate: (json['clickThroughRate'] as num?)?.toDouble() ?? 0.0,
+      totalImpressions: (json['totalImpressions'] as num?)?.toInt() ?? 0,
+      totalClicks: (json['totalClicks'] as num?)?.toInt() ?? 0,
+      totalBorrows: (json['totalBorrows'] as num?)?.toInt() ?? 0,
+      totalFeedback: (json['totalFeedbackCount'] as num?)?.toInt() ?? 0,
+      likeCount: (json['likeCount'] as num?)?.toInt() ?? 0,
+      dislikeCount: (json['dislikeCount'] as num?)?.toInt() ?? 0,
+      clickThroughRate: (json['ctr'] as num?)?.toDouble() ?? 0.0,
       borrowConversionRate: (json['borrowConversionRate'] as num?)?.toDouble() ?? 0.0,
       satisfactionRate: (json['satisfactionRate'] as num?)?.toDouble() ?? 0.0,
     );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'totalImpressions': totalImpressions,
-      'totalClicks': totalClicks,
-      'totalBorrows': totalBorrows,
-      'totalFeedback': totalFeedback,
-      'likeCount': likeCount,
-      'dislikeCount': dislikeCount,
-      'clickThroughRate': clickThroughRate,
-      'borrowConversionRate': borrowConversionRate,
-      'satisfactionRate': satisfactionRate,
-    };
   }
 }
 
@@ -271,17 +284,8 @@ class LibrarianDashboardModel {
 
     RecommendationMetricsModel? metrics;
     if (json['aiMetrics'] != null) {
-      final aiJson = json['aiMetrics'] as Map<String, dynamic>;
-      metrics = RecommendationMetricsModel(
-        totalImpressions: (aiJson['totalImpressions'] as num?)?.toInt() ?? 0,
-        totalClicks: (aiJson['totalClicks'] as num?)?.toInt() ?? 0,
-        totalBorrows: (aiJson['totalBorrows'] as num?)?.toInt() ?? 0,
-        totalFeedback: (aiJson['totalFeedbackCount'] as num?)?.toInt() ?? 0,
-        likeCount: (aiJson['likeCount'] as num?)?.toInt() ?? 0,
-        dislikeCount: (aiJson['dislikeCount'] as num?)?.toInt() ?? 0,
-        clickThroughRate: (aiJson['ctr'] as num?)?.toDouble() ?? 0.0,
-        borrowConversionRate: (aiJson['borrowConversionRate'] as num?)?.toDouble() ?? 0.0,
-        satisfactionRate: (aiJson['satisfactionRate'] as num?)?.toDouble() ?? 0.0,
+      metrics = RecommendationMetricsModel.fromJson(
+        json['aiMetrics'] as Map<String, dynamic>,
       );
     }
 

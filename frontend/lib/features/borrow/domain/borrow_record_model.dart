@@ -52,7 +52,7 @@ class BorrowRecordModel {
 
   factory BorrowRecordModel.fromJson(Map<String, dynamic> json) {
     return BorrowRecordModel(
-      id: json['id'] as int,
+      id: (json['id'] as num?)?.toInt() ?? 0,
       recordNo: json['recordNo'] as String? ?? '',
       bookId: json['bookId'] as int? ?? 0,
       bookTitle: json['bookTitle'] as String? ?? '',

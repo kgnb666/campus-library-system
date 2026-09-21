@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/network/api_error_mapper.dart';
 import 'statistics_provider.dart';
 import '../domain/statistics_model.dart';
 
@@ -41,7 +42,7 @@ class ReadingStatisticsScreen extends ConsumerWidget {
                 children: [
                   const Icon(Icons.error_outline, size: 48, color: Colors.red),
                   const SizedBox(height: 12),
-                  Text('加载统计数据失败: $err', textAlign: TextAlign.center),
+                  Text(mapApiError(err), textAlign: TextAlign.center),
                   const SizedBox(height: 16),
                   FilledButton.tonal(
                     onPressed: () => ref.refresh(myReadingStatisticsProvider),
@@ -158,7 +159,7 @@ class ReadingStatisticsScreen extends ConsumerWidget {
                   ],
                 ),
                 Text(
-                  '¥ ${stats.estimatedMoneySaved.toStringAsFixed(2)}',
+                  '¥ ${stats.estimatedSavedMoney.toStringAsFixed(2)}',
                   style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -178,7 +179,7 @@ class ReadingStatisticsScreen extends ConsumerWidget {
       children: [
         Expanded(child: _buildKpiItem('累计借阅', '${stats.totalBorrowedCount} 本', Icons.book_outlined, Colors.blue)),
         const SizedBox(width: 8),
-        Expanded(child: _buildKpiItem('当前在借', '${stats.activeBorrowedCount} 本', Icons.timer_outlined, Colors.orange)),
+        Expanded(child: _buildKpiItem('当前在借', '${stats.activeBorrowingCount} 本', Icons.timer_outlined, Colors.orange)),
         const SizedBox(width: 8),
         Expanded(child: _buildKpiItem('已归还', '${stats.returnedCount} 本', Icons.check_circle_outline, Colors.green)),
         const SizedBox(width: 8),
@@ -207,8 +208,10 @@ class ReadingStatisticsScreen extends ConsumerWidget {
   }
 
   Widget _buildCategoryDistributionCard(BuildContext context, MyReadingStatisticsModel stats, ThemeData theme) {
-    final dist = stats.categoryDistribution;
-    final total = dist.values.fold(0, (sum, val) => sum + val);
+    // 后端返回的是分类偏好列表（含服务端计算好的百分比），
+    // 原实现按 Map<String,int> 解析，导致图表恒为空
+    final prefs = stats.categoryPreferences;
+    final total = prefs.fold<int>(0, (sum, item) => sum + item.count);
 
     return Card(
       elevation: 0.5,
@@ -226,14 +229,16 @@ class ReadingStatisticsScreen extends ConsumerWidget {
               ],
             ),
             const SizedBox(height: 12),
-            if (dist.isEmpty)
+            if (prefs.isEmpty)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 16),
                 child: Center(child: Text('暂无借阅分类数据', style: TextStyle(color: Colors.grey))),
               )
             else
-              ...dist.entries.map((entry) {
-                final percent = total > 0 ? (entry.value / total) : 0.0;
+              ...prefs.map((item) {
+                final percent = item.percentage > 0
+                    ? item.percentage / 100.0
+                    : (total > 0 ? item.count / total : 0.0);
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 6),
                   child: Column(
@@ -242,9 +247,9 @@ class ReadingStatisticsScreen extends ConsumerWidget {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(entry.key, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                          Text(item.categoryName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
                           Text(
-                            '${entry.value} 本 (${(percent * 100).toStringAsFixed(1)}%)',
+                            '${item.count} 本 (${(percent * 100).toStringAsFixed(1)}%)',
                             style: const TextStyle(fontSize: 12, color: Colors.grey),
                           ),
                         ],
@@ -253,7 +258,7 @@ class ReadingStatisticsScreen extends ConsumerWidget {
                       ClipRRect(
                         borderRadius: BorderRadius.circular(4),
                         child: LinearProgressIndicator(
-                          value: percent,
+                          value: percent.clamp(0.0, 1.0),
                           minHeight: 8,
                           backgroundColor: theme.colorScheme.surfaceContainerHighest,
                           valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
@@ -270,8 +275,8 @@ class ReadingStatisticsScreen extends ConsumerWidget {
   }
 
   Widget _buildMonthlyTrendCard(BuildContext context, MyReadingStatisticsModel stats, ThemeData theme) {
-    final trend = stats.monthlyBorrowTrend;
-    final maxVal = trend.values.fold(1, (max, val) => val > max ? val : max);
+    final trends = stats.monthlyTrends;
+    final maxVal = trends.fold<int>(1, (max, item) => item.count > max ? item.count : max);
 
     return Card(
       elevation: 0.5,
@@ -289,7 +294,7 @@ class ReadingStatisticsScreen extends ConsumerWidget {
               ],
             ),
             const SizedBox(height: 16),
-            if (trend.isEmpty)
+            if (trends.isEmpty)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 16),
                 child: Center(child: Text('暂无借阅趋势数据', style: TextStyle(color: Colors.grey))),
@@ -300,13 +305,13 @@ class ReadingStatisticsScreen extends ConsumerWidget {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: trend.entries.map((entry) {
-                    final heightFactor = (entry.value / maxVal).clamp(0.08, 1.0);
+                  children: trends.map((item) {
+                    final heightFactor = (item.count / maxVal).clamp(0.08, 1.0);
                     return Column(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
                         Text(
-                          '${entry.value}',
+                          '${item.count}',
                           style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 4),
@@ -314,7 +319,7 @@ class ReadingStatisticsScreen extends ConsumerWidget {
                           width: 24,
                           height: 80 * heightFactor,
                           decoration: BoxDecoration(
-                            color: entry.value > 0
+                            color: item.count > 0
                                 ? theme.colorScheme.primary
                                 : theme.colorScheme.surfaceContainerHighest,
                             borderRadius: BorderRadius.circular(4),
@@ -322,7 +327,7 @@ class ReadingStatisticsScreen extends ConsumerWidget {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          entry.key.length > 5 ? entry.key.substring(5) : entry.key,
+                          item.month.length > 5 ? item.month.substring(5) : item.month,
                           style: const TextStyle(fontSize: 11, color: Colors.grey),
                         ),
                       ],

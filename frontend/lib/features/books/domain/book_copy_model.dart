@@ -22,7 +22,7 @@ class BookCopyModel {
 
   factory BookCopyModel.fromJson(Map<String, dynamic> json) {
     return BookCopyModel(
-      id: json['id'] as int,
+      id: (json['id'] as num?)?.toInt() ?? 0,
       bookId: json['bookId'] as int? ?? 0,
       barcode: json['barcode'] as String? ?? '',
       location: json['location'] as String? ?? '',

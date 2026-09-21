@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/network/api_error_mapper.dart';
 import '../data/notification_repository.dart';
 import '../domain/notification_model.dart';
 
@@ -55,15 +56,18 @@ class NotificationNotifier extends StateNotifier<NotificationState> {
         type: state.selectedType,
       );
       final unread = await _repository.getUnreadCount();
+      // notifier 可能在两次网络往返之间被销毁（登出会 invalidate 本 Provider）
+      if (!mounted) return;
       state = state.copyWith(
         isLoading: false,
         items: res['items'] as List<NotificationModel>,
         unreadCount: unread,
       );
     } catch (e) {
+      if (!mounted) return;
       state = state.copyWith(
         isLoading: false,
-        errorMessage: '获取通知失败: ${e.toString()}',
+        errorMessage: '获取通知失败：${mapApiError(e)}',
       );
     }
   }
@@ -81,6 +85,7 @@ class NotificationNotifier extends StateNotifier<NotificationState> {
   Future<void> markAsRead(int notificationId) async {
     try {
       final updated = await _repository.markAsRead(notificationId);
+      if (!mounted) return;
       final updatedItems = state.items.map((item) {
         return item.id == notificationId ? updated : item;
       }).toList();
@@ -88,19 +93,22 @@ class NotificationNotifier extends StateNotifier<NotificationState> {
       final newUnread = (state.unreadCount > 0) ? state.unreadCount - 1 : 0;
       state = state.copyWith(items: updatedItems, unreadCount: newUnread);
     } catch (e) {
-      state = state.copyWith(errorMessage: '标记已读失败: ${e.toString()}');
+      if (!mounted) return;
+      state = state.copyWith(errorMessage: '标记已读失败：${mapApiError(e)}');
     }
   }
 
   Future<void> markAllAsRead() async {
     try {
       await _repository.markAllAsRead();
+      if (!mounted) return;
       final updatedItems = state.items.map((item) {
         return item.copyWith(isRead: true);
       }).toList();
       state = state.copyWith(items: updatedItems, unreadCount: 0);
     } catch (e) {
-      state = state.copyWith(errorMessage: '全部标记已读失败: ${e.toString()}');
+      if (!mounted) return;
+      state = state.copyWith(errorMessage: '全部标记已读失败：${mapApiError(e)}');
     }
   }
 }
@@ -111,11 +119,9 @@ final notificationProvider =
   return NotificationNotifier(repo);
 });
 
-final unreadNotificationCountProvider = FutureProvider<int>((ref) async {
-  final repo = ref.watch(notificationRepositoryProvider);
-  try {
-    return await repo.getUnreadCount();
-  } catch (_) {
-    return 0;
-  }
-});
+// Stage 10-I 死代码清理说明:
+//   原先这里还有一个 unreadNotificationCountProvider（FutureProvider<int>），
+//   但它全项目没有任何消费点 —— 未读数的真实来源是上面 notificationProvider
+//   的 state.unreadCount（Notifier 内部调用同一个 repo.getUnreadCount()）。
+//   两个来源并存只会让"未读数从哪里来"变得含混，故删除。
+//   repository 的 getUnreadCount 仍被 Notifier 使用，并由契约测试守住路径。

@@ -46,9 +46,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Future<void> _onRefresh() async {
+    // 逐项独立容错：任一项失败都不应让整个下拉刷新以异常结束
+    // （RefreshIndicator 的 future 抛异常会导致刷新指示器行为未定义）
     await Future.wait([
       ref.read(aiRecommendationsProvider.notifier).loadRecommendations(refresh: true),
-      ref.refresh(popularBooksRankingProvider(null).future),
+      ref
+          .refresh(popularBooksRankingProvider.future)
+          .catchError((Object _) => <PopularBookRankingModel>[]),
     ]);
   }
 
@@ -57,7 +61,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final authState = ref.watch(authStateProvider);
     final user = authState.user;
     final aiState = ref.watch(aiRecommendationsProvider);
-    final popularAsync = ref.watch(popularBooksRankingProvider(null));
+    final popularAsync = ref.watch(popularBooksRankingProvider);
 
     final theme = Theme.of(context);
     final isLibrarianOrAdmin = user?.roles.any((r) =>

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'ai_provider.dart';
 import '../domain/ai_model.dart';
 import '../../borrow/data/borrow_repository.dart';
+import '../../../core/network/api_error_mapper.dart';
 import '../../borrow/presentation/borrow_provider.dart';
 import '../../reservation/data/reservation_repository.dart';
 import '../../reservation/presentation/reservation_provider.dart';
@@ -54,7 +55,7 @@ class AiRecommendationScreen extends ConsumerWidget {
           children: [
             const Icon(Icons.error_outline, size: 48, color: Colors.red),
             const SizedBox(height: 12),
-            Text('推荐加载失败: $error', textAlign: TextAlign.center),
+            Text(mapApiError(error), textAlign: TextAlign.center),
             const SizedBox(height: 16),
             FilledButton.tonal(
               onPressed: () => ref.read(aiRecommendationsProvider.notifier).loadRecommendations(refresh: true),
@@ -79,7 +80,8 @@ class AiRecommendationScreen extends ConsumerWidget {
             const Text('暂无推荐图书，先去借阅几本喜欢的书吧！', style: TextStyle(color: Colors.grey)),
             const SizedBox(height: 16),
             FilledButton(
-              onPressed: () => context.go('/books'),
+              // 图书列表是首页内的 Tab 1，而非独立路由（原 '/books' 并不存在）
+              onPressed: () => context.go('/?tab=1'),
               child: const Text('去图书大厅逛逛'),
             ),
           ],
@@ -128,7 +130,9 @@ class AiRecommendationScreen extends ConsumerWidget {
   Widget _buildRecommendationCard(BuildContext context, WidgetRef ref, RecommendedBookModel book) {
     final theme = Theme.of(context);
     final notifier = ref.read(aiRecommendationsProvider.notifier);
-    final matchScore = (book.recommendationScore * 100).toInt().clamp(50, 99);
+    // 后端 score 直接就是 0~100 的契合度分值（如 72.0），
+    // 原实现再做 `* 100` 后 clamp(50,99)，导致所有卡片恒显示 99%
+    final matchScore = book.recommendationScore.round().clamp(0, 100);
 
     return Card(
       elevation: 1,
@@ -339,7 +343,7 @@ class AiRecommendationScreen extends ConsumerWidget {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('借阅失败: ${e.toString()}')),
+          SnackBar(content: Text('借阅失败：${mapApiError(e)}')),
         );
       }
     }
@@ -358,7 +362,7 @@ class AiRecommendationScreen extends ConsumerWidget {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('预约失败: ${e.toString()}')),
+          SnackBar(content: Text('预约失败：${mapApiError(e)}')),
         );
       }
     }

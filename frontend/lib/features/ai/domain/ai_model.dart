@@ -1,4 +1,12 @@
-/// AI 推荐图书模型 (Stage 5)
+/// AI 推荐图书模型 (Stage 5，Stage 10-D 按后端真实响应字段对齐)
+///
+/// 后端 `RecommendedBookResponse` 的实际字段（已用真实接口核对）:
+///   recommendationLogId, bookId, isbn, title, author, coverUrl, categoryName,
+///   availableCopies, totalCopies, score, recommendationSource,
+///   sourceDescription, reason, feedback
+///
+/// 注意: 后端并不返回 `canBorrow` / `canReserve`，二者由在架册数推导
+/// （后端规则：有在架副本时禁止预约，无在架副本时才允许排队）。
 class RecommendedBookModel {
   final int id;
   final String title;
@@ -10,6 +18,9 @@ class RecommendedBookModel {
   final int totalCopies;
   final double recommendationScore;
   final String recommendationSource;
+
+  /// 后端给出的可读推荐来源描述（如"内容特征匹配"）
+  final String? sourceDescription;
   final String recommendationReason;
   final int? logId;
   final String? userFeedback;
@@ -27,6 +38,7 @@ class RecommendedBookModel {
     required this.totalCopies,
     required this.recommendationScore,
     required this.recommendationSource,
+    this.sourceDescription,
     required this.recommendationReason,
     this.logId,
     this.userFeedback,
@@ -35,28 +47,32 @@ class RecommendedBookModel {
   });
 
   factory RecommendedBookModel.fromJson(Map<String, dynamic> json) {
+    // 全部字段按"可能缺失/null"处理：任一字段缺失都不应让整张推荐列表解析失败
+    final availableCopies = (json['availableCopies'] as num?)?.toInt() ?? 0;
+
     return RecommendedBookModel(
-      id: json['id'] as int,
+      id: (json['bookId'] as num?)?.toInt() ?? 0,
       title: json['title'] as String? ?? '',
       author: json['author'] as String? ?? '',
       isbn: json['isbn'] as String?,
       coverUrl: json['coverUrl'] as String?,
       categoryName: json['categoryName'] as String?,
-      availableCopies: json['availableCopies'] as int? ?? 0,
-      totalCopies: json['totalCopies'] as int? ?? 0,
-      recommendationScore: (json['recommendationScore'] as num?)?.toDouble() ?? 0.0,
-      recommendationSource: json['recommendationSource'] as String? ?? 'POPULARITY_FALLBACK',
-      recommendationReason: json['recommendationReason'] as String? ?? '根据系统借阅热度与库存推荐',
-      logId: json['logId'] as int?,
-      userFeedback: json['userFeedback'] as String?,
-      canBorrow: json['canBorrow'] as bool? ?? false,
-      canReserve: json['canReserve'] as bool? ?? false,
+      availableCopies: availableCopies,
+      totalCopies: (json['totalCopies'] as num?)?.toInt() ?? 0,
+      recommendationScore: (json['score'] as num?)?.toDouble() ?? 0.0,
+      recommendationSource: json['recommendationSource'] as String? ?? 'POPULARITY',
+      sourceDescription: json['sourceDescription'] as String?,
+      recommendationReason: json['reason'] as String? ?? '根据系统借阅热度与库存推荐',
+      logId: (json['recommendationLogId'] as num?)?.toInt(),
+      userFeedback: json['feedback'] as String?,
+      canBorrow: availableCopies > 0,
+      canReserve: availableCopies == 0,
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
-      'id': id,
+      'bookId': id,
       'title': title,
       'author': author,
       'isbn': isbn,
@@ -64,13 +80,12 @@ class RecommendedBookModel {
       'categoryName': categoryName,
       'availableCopies': availableCopies,
       'totalCopies': totalCopies,
-      'recommendationScore': recommendationScore,
+      'score': recommendationScore,
       'recommendationSource': recommendationSource,
-      'recommendationReason': recommendationReason,
-      'logId': logId,
-      'userFeedback': userFeedback,
-      'canBorrow': canBorrow,
-      'canReserve': canReserve,
+      'sourceDescription': sourceDescription,
+      'reason': recommendationReason,
+      'recommendationLogId': logId,
+      'feedback': userFeedback,
     };
   }
 
@@ -85,6 +100,7 @@ class RecommendedBookModel {
     int? totalCopies,
     double? recommendationScore,
     String? recommendationSource,
+    String? sourceDescription,
     String? recommendationReason,
     int? logId,
     String? userFeedback,
@@ -102,6 +118,7 @@ class RecommendedBookModel {
       totalCopies: totalCopies ?? this.totalCopies,
       recommendationScore: recommendationScore ?? this.recommendationScore,
       recommendationSource: recommendationSource ?? this.recommendationSource,
+      sourceDescription: sourceDescription ?? this.sourceDescription,
       recommendationReason: recommendationReason ?? this.recommendationReason,
       logId: logId ?? this.logId,
       userFeedback: userFeedback ?? this.userFeedback,
@@ -110,16 +127,24 @@ class RecommendedBookModel {
     );
   }
 
-  /// 推荐来源文案与图标展示辅助方法
+  /// 推荐来源展示文案
+  ///
+  /// 优先使用后端给出的 `sourceDescription`；回退时按后端枚举的真实取值映射。
+  /// 原实现映射的是 HYBRID_AI / CONTENT_SIMILARITY / COLLABORATIVE_FILTERING /
+  /// POPULARITY_FALLBACK —— 其中后三个后端从不返回，导致标签恒为默认值。
   String get sourceDisplayName {
+    final description = sourceDescription;
+    if (description != null && description.isNotEmpty) {
+      return description;
+    }
     switch (recommendationSource) {
       case 'HYBRID_AI':
         return 'AI 综合推荐';
-      case 'CONTENT_SIMILARITY':
+      case 'CONTENT_BASED':
         return '分类偏好推荐';
-      case 'COLLABORATIVE_FILTERING':
+      case 'BEHAVIOR_COLLABORATIVE':
         return '同学都在看';
-      case 'POPULARITY_FALLBACK':
+      case 'POPULARITY':
       default:
         return '全馆借阅榜单';
     }
@@ -150,8 +175,8 @@ class BookInsightModel {
 
   factory BookInsightModel.fromJson(Map<String, dynamic> json) {
     return BookInsightModel(
-      id: json['id'] as int? ?? 0,
-      bookId: json['bookId'] as int? ?? 0,
+      id: (json['id'] as num?)?.toInt() ?? 0,
+      bookId: (json['bookId'] as num?)?.toInt() ?? 0,
       summary: json['summary'] as String? ?? '',
       keyTopics: (json['keyTopics'] as List<dynamic>?)
               ?.map((e) => e.toString())

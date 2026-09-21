@@ -19,6 +19,9 @@ class _NotificationCenterScreenState extends ConsumerState<NotificationCenterScr
     {'label': '全部', 'type': null, 'unreadOnly': false},
     {'label': '仅看未读', 'type': null, 'unreadOnly': true},
     {'label': '到馆待取', 'type': 'RESERVATION_READY', 'unreadOnly': false},
+    // 后端 NotificationType 共 5 个值，其中 RESERVATION_EXPIRED（预约超期未取失效）
+    // 原先前端缺少对应筛选项：这类通知确实会产生，用户却无法按类型过滤 (Stage 10-I)
+    {'label': '预约失效', 'type': 'RESERVATION_EXPIRED', 'unreadOnly': false},
     {'label': '临期催还', 'type': 'BORROW_DUE_REMIND', 'unreadOnly': false},
     {'label': '逾期告警', 'type': 'BORROW_OVERDUE', 'unreadOnly': false},
     {'label': '系统通知', 'type': 'SYSTEM_ANNOUNCEMENT', 'unreadOnly': false},
@@ -235,7 +238,10 @@ class _NotificationCenterScreenState extends ConsumerState<NotificationCenterScr
                           _formatTime(notif.createdAt),
                           style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
                         ),
-                        if (notif.relatedEntityType != null && notif.relatedEntityType != 'NONE')
+                        // 只在确实存在跳转目标时提示"点击查看详情"——
+                        // 原实现仅排除 'NONE'，而 BORROW_RECORD 类型当时没有任何跳转分支，
+                        // 于是催还/逾期通知显示可点击、点了却毫无反应 (Stage 10-I)
+                        if (_hasNavigationTarget(notif))
                           Text(
                             '点击查看详情 >',
                             style: TextStyle(fontSize: 12, color: theme.colorScheme.primary, fontWeight: FontWeight.w500),
@@ -253,10 +259,32 @@ class _NotificationCenterScreenState extends ConsumerState<NotificationCenterScr
   }
 
   void _handleNavigation(BuildContext context, NotificationModel notif) {
-    if (notif.relatedEntityType == 'BOOK' && notif.relatedEntityId != null) {
-      context.push('/books/${notif.relatedEntityId}');
-    } else if (notif.relatedEntityType == 'RESERVATION') {
-      context.push('/reservations');
+    switch (notif.relatedEntityType) {
+      case 'BOOK':
+        if (notif.relatedEntityId != null) {
+          context.push('/books/${notif.relatedEntityId}');
+        }
+      case 'RESERVATION':
+        context.push('/reservations');
+      case 'BORROW_RECORD':
+        // 借阅流水没有独立详情页，"临期催还 / 逾期告警"应落到主导航的"借阅"页 (tab=2)。
+        // 用 go 而非 push：目标是底部导航的一个 Tab，塞进路由栈会让返回行为变得奇怪。
+        context.go('/?tab=2');
+      default:
+        break;
+    }
+  }
+
+  /// 该通知是否存在可跳转目标（决定是否渲染"点击查看详情"）
+  bool _hasNavigationTarget(NotificationModel notif) {
+    switch (notif.relatedEntityType) {
+      case 'BOOK':
+        return notif.relatedEntityId != null;
+      case 'RESERVATION':
+      case 'BORROW_RECORD':
+        return true;
+      default:
+        return false;
     }
   }
 

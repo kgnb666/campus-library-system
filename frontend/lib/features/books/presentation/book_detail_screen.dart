@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/network/api_error_mapper.dart';
 import '../domain/book_copy_model.dart';
 import '../domain/book_model.dart';
 import 'book_provider.dart';
@@ -34,7 +35,7 @@ class BookDetailScreen extends ConsumerWidget {
               children: [
                 const Icon(Icons.error_outline, size: 48, color: Colors.red),
                 const SizedBox(height: 12),
-                Text('获取图书详情失败: ${err.toString()}', textAlign: TextAlign.center),
+                Text('获取图书详情失败：${mapApiError(err)}', textAlign: TextAlign.center),
                 const SizedBox(height: 16),
                 FilledButton.tonal(
                   onPressed: () => ref.refresh(bookDetailProvider(bookId)),
@@ -343,7 +344,7 @@ class BookDetailScreen extends ConsumerWidget {
               } catch (e) {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('预约失败: ${e.toString()}')),
+                    SnackBar(content: Text('预约失败：${mapApiError(e)}')),
                   );
                 }
               }
@@ -398,7 +399,7 @@ class BookDetailScreen extends ConsumerWidget {
               } catch (e) {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('借阅失败: ${e.toString()}')),
+                    SnackBar(content: Text('借阅失败：${mapApiError(e)}')),
                   );
                 }
               }

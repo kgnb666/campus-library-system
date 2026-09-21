@@ -1,0 +1,37 @@
+# ==============================================================================
+# 前端镜像构建上下文忽略规则
+#
+# 注意: docker-compose.prod.yml 当前把 frontend 的构建上下文设为【仓库根】，
+#       因此 prod 编排实际生效的是仓库根目录的 .dockerignore。
+#       本文件用于"以 frontend/ 为上下文"的独立构建场景
+#       （例如 docker build -f docker/frontend/Dockerfile frontend/）。
+# ==============================================================================
+
+# 本地构建产物与依赖缓存
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+
+# 工具状态与 IDE 残留
+.mimosa
+**/.mimosa
+.idea
+*.iml
+campus_library_frontend.iml
+
+# 日志与环境文件
+*.log
+logs/
+.env
+.env.*
+*.pem
+*.key
+
+# 版本控制
+.git
+.gitignore
+
+# 说明: web/ 必须保留 —— 其中 index.html 与 manifest.json 是 flutter build web 的必需输入。

@@ -102,7 +102,7 @@ void main() {
                 AiRecommendationsState(recommendations: mockRecommendations, isLoading: false),
               ),
             ),
-            popularBooksRankingProvider(null).overrideWith(
+            popularBooksRankingProvider.overrideWith(
               (ref) => Future.value(mockRanking),
             ),
           ],
@@ -158,7 +158,7 @@ void main() {
                 AiRecommendationsState(recommendations: mockRecommendations, isLoading: false),
               ),
             ),
-            popularBooksRankingProvider(null).overrideWith(
+            popularBooksRankingProvider.overrideWith(
               (ref) => Future.value(mockRanking),
             ),
           ],
@@ -188,7 +188,7 @@ void main() {
                 AiRecommendationsState(recommendations: mockRecommendations, isLoading: false),
               ),
             ),
-            popularBooksRankingProvider(null).overrideWith(
+            popularBooksRankingProvider.overrideWith(
               (ref) => Future.value(mockRanking),
             ),
           ],
@@ -223,7 +223,7 @@ void main() {
               AiRecommendationsState(recommendations: mockRecommendations, isLoading: false),
             ),
           ),
-          popularBooksRankingProvider(null).overrideWith(
+          popularBooksRankingProvider.overrideWith(
             (ref) => Future.value(mockRanking),
           ),
         ],
@@ -270,7 +270,20 @@ class _FakeAuthNotifier extends StateNotifier<AuthState> implements AuthNotifier
   Future<bool> login({required String username, required String password}) async => true;
 
   @override
+  Future<bool> register({
+    required String username,
+    required String email,
+    required String password,
+    required String nickname,
+  }) async => true;
+
+  @override
   Future<void> logout() async {
+    state = AuthState.unauthenticated();
+  }
+
+  @override
+  void markSessionExpired() {
     state = AuthState.unauthenticated();
   }
 }

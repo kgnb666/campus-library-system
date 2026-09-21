@@ -69,8 +69,15 @@ class ReservationRepository {
   }
 
   /// 获取预约详情
+  ///
+  /// 后端 ReservationDetailResponse 的结构为 `{reservation: {...}, events: [...]}`，
+  /// 原实现直接把整个 data 当作预约对象返回，调用方取不到任何字段。
   Future<Map<String, dynamic>> getReservationDetail(int reservationId) async {
     final response = await _dio.get('/reservations/$reservationId');
-    return response.data['data'] as Map<String, dynamic>;
+    final data = response.data['data'] as Map<String, dynamic>? ?? const {};
+    return {
+      'reservation': data['reservation'] as Map<String, dynamic>?,
+      'events': data['events'] as List<dynamic>? ?? const [],
+    };
   }
 }

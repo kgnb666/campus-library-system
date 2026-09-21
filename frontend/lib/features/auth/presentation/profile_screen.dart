@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../domain/permissions.dart';
 import 'auth_provider.dart';
 
 /// 个人中心与资料页面 (Stage 1-B)
@@ -200,28 +201,82 @@ class ProfileScreen extends ConsumerWidget {
             ),
           ),
 
-          if (user.roles.any((r) => r == 'LIBRARIAN' || r == 'ROLE_LIBRARIAN' || r == 'ADMIN' || r == 'ROLE_ADMIN')) ...[
+          // 后台入口按**权限码**显隐（Stage 10-O）：
+          // 馆员看到业务类入口，管理员在此之上多出"系统管理"一块 —— 差异在界面上可见。
+          if (user.canAny(Permissions.librarianDashboard) ||
+              user.canAny(Permissions.catalogWorkbench)) ...[
             const SizedBox(height: 16),
             Card(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               elevation: 1,
               child: Column(
                 children: [
-                  ListTile(
-                    leading: const Icon(Icons.dashboard_outlined, color: Colors.teal),
-                    title: const Text('馆员运营工作台'),
-                    subtitle: const Text('全馆资产大盘、实时流通监控与AI算法效能'),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => context.push('/admin/dashboard'),
+                  if (user.canAny(Permissions.librarianDashboard))
+                    ListTile(
+                      leading: const Icon(Icons.dashboard_outlined, color: Colors.teal),
+                      title: const Text('馆员运营工作台'),
+                      subtitle: const Text('全馆资产大盘、实时流通监控与AI算法效能'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => context.push('/admin/dashboard'),
+                    ),
+                  if (user.canAny(Permissions.librarianDashboard) &&
+                      user.canAny(Permissions.catalogWorkbench))
+                    const Divider(height: 1),
+                  if (user.canAny(Permissions.catalogWorkbench))
+                    ListTile(
+                      leading: const Icon(Icons.library_books_outlined, color: Colors.brown),
+                      title: const Text('图书编目管理工作台'),
+                      subtitle: const Text('书目CRUD、单册副本维护与Excel批量导入'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => context.push('/admin/catalog'),
+                    ),
+                ],
+              ),
+            ),
+          ],
+
+          // 系统管理：仅持有 user:manage / role:manage 的账号可见（当前仅 ADMIN）
+          if (user.can(Permissions.userManage) || user.can(Permissions.roleManage)) ...[
+            const SizedBox(height: 16),
+            Card(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              elevation: 1,
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                    child: Row(
+                      children: [
+                        Icon(Icons.admin_panel_settings, size: 18,
+                            color: Theme.of(context).colorScheme.error),
+                        const SizedBox(width: 8),
+                        Text('系统管理（仅管理员）',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: Theme.of(context).colorScheme.error,
+                            )),
+                      ],
+                    ),
                   ),
-                  const Divider(height: 1),
-                  ListTile(
-                    leading: const Icon(Icons.library_books_outlined, color: Colors.brown),
-                    title: const Text('图书编目管理工作台'),
-                    subtitle: const Text('书目CRUD、单册副本维护与Excel批量导入'),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => context.push('/admin/catalog'),
-                  ),
+                  if (user.can(Permissions.userManage))
+                    ListTile(
+                      leading: const Icon(Icons.manage_accounts_outlined, color: Colors.indigo),
+                      title: const Text('用户管理'),
+                      subtitle: const Text('检索账号、启用/停用、重置口令'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => context.push('/admin/users'),
+                    ),
+                  if (user.can(Permissions.userManage) && user.can(Permissions.roleManage))
+                    const Divider(height: 1),
+                  if (user.can(Permissions.roleManage))
+                    ListTile(
+                      leading: const Icon(Icons.policy_outlined, color: Colors.deepOrange),
+                      title: const Text('角色与权限'),
+                      subtitle: const Text('查看各角色持有的权限码，直观对比管理员与馆员差异'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => context.push('/admin/roles'),
+                    ),
                 ],
               ),
             ),

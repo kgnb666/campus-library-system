@@ -83,9 +83,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ),
                   const SizedBox(height: 36),
 
-                  // 错误信息展示横幅
-                  if (authState.errorMessage != null &&
-                      authState.status == AuthStatus.error) ...[
+                  // 错误/会话过期提示横幅
+                  // 除登录失败外，"登录已过期，请重新登录"也通过 errorMessage 下发
+                  if (authState.errorMessage != null) ...[
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
@@ -193,6 +193,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               ),
                             ),
                     ),
+                  ),
+
+                  // 自助注册入口 (Stage 10-Q)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text('还没有账号？', style: Theme.of(context).textTheme.bodySmall),
+                      TextButton(
+                        onPressed: () => context.push('/register'),
+                        child: const Text('立即注册'),
+                      ),
+                    ],
                   ),
 
                   // 答辩演示快捷填充组件 (Stage 7-A)

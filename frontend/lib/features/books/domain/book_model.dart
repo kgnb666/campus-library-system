@@ -40,7 +40,7 @@ class BookModel {
 
   factory BookModel.fromJson(Map<String, dynamic> json) {
     return BookModel(
-      id: json['id'] as int,
+      id: (json['id'] as num?)?.toInt() ?? 0,
       isbn: json['isbn'] as String? ?? '',
       title: json['title'] as String? ?? '',
       subtitle: json['subtitle'] as String?,

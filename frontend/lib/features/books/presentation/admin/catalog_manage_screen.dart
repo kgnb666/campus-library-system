@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../../core/network/api_error_mapper.dart';
 import '../../../auth/presentation/auth_provider.dart';
 import '../../data/book_repository.dart';
 import '../../domain/book_copy_model.dart';
 import '../../domain/book_model.dart';
+import '../../../auth/domain/permissions.dart';
 import '../book_provider.dart';
 import 'widgets/excel_import_dialog.dart';
 
@@ -49,7 +51,7 @@ class _CatalogManageScreenState extends ConsumerState<CatalogManageScreen> {
     } catch (e) {
       setState(() {
         _isLoading = false;
-        _errorMessage = '加载书目失败: ${e.toString()}';
+        _errorMessage = '加载书目失败：${mapApiError(e)}';
       });
     }
   }
@@ -58,9 +60,12 @@ class _CatalogManageScreenState extends ConsumerState<CatalogManageScreen> {
   Widget build(BuildContext context) {
     final authState = ref.watch(authStateProvider);
     final user = authState.user;
-    final isLibrarian = user?.roles.any((r) => r == 'LIBRARIAN' || r == 'ROLE_LIBRARIAN') ?? false;
-    final isAdmin = user?.roles.any((r) => r == 'ADMIN' || r == 'ROLE_ADMIN') ?? false;
-    final hasCatalogAccess = isLibrarian || isAdmin;
+    // 一律按权限码判断（Stage 10-O）：与后端 @PreAuthorize 同源，
+    // 避免"角色绑定变了、界面没跟着变"导致看得见按钮却点了 403。
+    final canManageCatalog = user.canAny(Permissions.catalogWorkbench);
+    // 删除书目是 ADMIN 专属的高风险动作，后端要求 book:delete，界面按同一权限码显隐
+    final canDeleteBook = user.can(Permissions.bookDelete);
+    final hasCatalogAccess = canManageCatalog;
 
     // RBAC 页面级拦截：STUDENT 角色禁止访问
     if (!hasCatalogAccess) {
@@ -166,7 +171,7 @@ class _CatalogManageScreenState extends ConsumerState<CatalogManageScreen> {
                             separatorBuilder: (_, _) => const SizedBox(height: 8),
                             itemBuilder: (context, index) {
                               final book = _books[index];
-                              return _buildBookAdminCard(context, book, isAdmin, theme);
+                              return _buildBookAdminCard(context, book, canDeleteBook, theme);
                             },
                           ),
           ),
@@ -175,7 +180,7 @@ class _CatalogManageScreenState extends ConsumerState<CatalogManageScreen> {
     );
   }
 
-  Widget _buildBookAdminCard(BuildContext context, BookModel book, bool isAdmin, ThemeData theme) {
+  Widget _buildBookAdminCard(BuildContext context, BookModel book, bool canDeleteBook, ThemeData theme) {
     return Card(
       elevation: 0,
       shape: RoundedRectangleBorder(
@@ -241,11 +246,11 @@ class _CatalogManageScreenState extends ConsumerState<CatalogManageScreen> {
                   label: const Text('单册管理'),
                   style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
                 ),
-                if (isAdmin) ...[
+                if (canDeleteBook) ...[
                   const SizedBox(width: 8),
                   IconButton(
                     icon: const Icon(Icons.delete_outline, color: Colors.red),
-                    tooltip: '删除书目 (ADMIN)',
+                    tooltip: '删除书目（需 book:delete 权限）',
                     onPressed: () => _confirmDeleteBook(context, book),
                   ),
                 ],
@@ -271,12 +276,13 @@ class _CatalogManageScreenState extends ConsumerState<CatalogManageScreen> {
     final categories = await ref.read(bookRepositoryProvider).getCategories();
     if (!context.mounted) return;
 
-    await showDialog(
-      context: context,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setDlgState) {
-            return AlertDialog(
+    try {
+      await showDialog(
+        context: context,
+        builder: (ctx) {
+          return StatefulBuilder(
+            builder: (context, setDlgState) {
+              return AlertDialog(
               title: Text(isEditing ? '编辑图书资料' : '录入新图书书目'),
               content: SizedBox(
                 width: 480,
@@ -381,7 +387,7 @@ class _CatalogManageScreenState extends ConsumerState<CatalogManageScreen> {
                     } catch (e) {
                       if (ctx.mounted) {
                         ScaffoldMessenger.of(ctx).showSnackBar(
-                          SnackBar(content: Text('保存图书失败: ${e.toString()}')),
+                          SnackBar(content: Text('保存图书失败：${mapApiError(e)}')),
                         );
                       }
                     }
@@ -394,6 +400,16 @@ class _CatalogManageScreenState extends ConsumerState<CatalogManageScreen> {
         );
       },
     );
+    } finally {
+      // 对话框关闭后释放 6 个控制器 (Stage 10-I)：
+      // 它们原先是随局部变量逃逸、从不 dispose 的，反复开关编辑框会持续泄漏。
+      titleCtrl.dispose();
+      isbnCtrl.dispose();
+      authorCtrl.dispose();
+      publisherCtrl.dispose();
+      publishDateCtrl.dispose();
+      descCtrl.dispose();
+    }
   }
 
   /// 确认删除图书
@@ -422,7 +438,7 @@ class _CatalogManageScreenState extends ConsumerState<CatalogManageScreen> {
       } catch (e) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('删除图书失败: ${e.toString()}')),
+            SnackBar(content: Text('删除图书失败：${mapApiError(e)}')),
           );
         }
       }
@@ -616,9 +632,10 @@ class _BookCopiesDialogState extends ConsumerState<_BookCopiesDialog> {
     final locationCtrl = TextEditingController(text: '图书馆主馆-A区书架');
     String selectedStatus = 'AVAILABLE';
 
-    await showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
+    try {
+      await showDialog(
+        context: context,
+        builder: (ctx) => StatefulBuilder(
         builder: (context, setDlgState) => AlertDialog(
           title: const Text('录入新物理副本'),
           content: Column(
@@ -676,5 +693,10 @@ class _BookCopiesDialogState extends ConsumerState<_BookCopiesDialog> {
         ),
       ),
     );
+    } finally {
+      // 对话框关闭后释放控制器 (Stage 10-I)
+      barcodeCtrl.dispose();
+      locationCtrl.dispose();
+    }
   }
 }

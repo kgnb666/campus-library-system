@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/network/api_error_mapper.dart';
 import '../../books/presentation/admin/widgets/excel_import_dialog.dart';
 import '../domain/statistics_model.dart';
 import 'statistics_provider.dart';
@@ -49,7 +50,7 @@ class LibrarianDashboardScreen extends ConsumerWidget {
             children: [
               Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
               const SizedBox(height: 12),
-              Text('加载运营大盘失败: ${err.toString()}'),
+              Text(mapApiError(err)),
               const SizedBox(height: 12),
               ElevatedButton(
                 onPressed: () => ref.invalidate(librarianDashboardProvider),

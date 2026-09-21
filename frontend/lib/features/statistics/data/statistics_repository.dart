@@ -29,14 +29,15 @@ class StatisticsRepository {
   }
 
   /// 获取热门图书借阅排行榜
-  Future<List<PopularBookRankingModel>> getPopularBookRanking({int limit = 10, int? days}) async {
-    final query = <String, dynamic>{'limit': limit};
-    if (days != null) {
-      query['days'] = days;
-    }
+  ///
+  /// 使用**读者侧**端点 /statistics/public/books/ranking (Stage 10-H)。
+  /// 原实现调用馆员专属的 /statistics/books/ranking（要求 statistics:global:view），
+  /// 而该榜单正是读者首页展示的内容，导致学生账号的"热门借阅榜单"恒为 403、永不显示。
+  /// 该端点只接受 limit，不接受 days（后端会静默忽略）。
+  Future<List<PopularBookRankingModel>> getPopularBookRanking({int limit = 10}) async {
     final response = await _dio.get(
-      '/statistics/books/ranking',
-      queryParameters: query,
+      '/statistics/public/books/ranking',
+      queryParameters: {'limit': limit},
     );
     final data = response.data['data'] as List<dynamic>? ?? [];
     return data
@@ -54,8 +55,11 @@ class StatisticsRepository {
   }
 
   /// 获取推荐系统转化效果指标
+  ///
+  /// 后端实际路径: GET /api/v1/statistics/recommendation-metrics
+  /// （原实现请求 /statistics/recommendations，后端无此路径，必然 404）
   Future<RecommendationMetricsModel> getRecommendationMetrics() async {
-    final response = await _dio.get('/statistics/recommendations');
+    final response = await _dio.get('/statistics/recommendation-metrics');
     final data = response.data['data'] as Map<String, dynamic>;
     return RecommendationMetricsModel.fromJson(data);
   }

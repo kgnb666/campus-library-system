@@ -35,7 +35,14 @@ class AuthRepository {
     };
   }
 
-  /// 用户注册
+  /// 用户自助注册 (Stage 10-Q)
+  ///
+  /// 对应后端 `POST /auth/register`：注册成功后仅获得 STUDENT 角色。
+  /// 后端可通过 `ALLOW_PUBLIC_REGISTRATION=false` 关闭该接口，
+  /// 关闭时返回 403 + 中文提示，界面直接把 message 展示给用户即可。
+  ///
+  /// 说明：该方法在阶段十-I 曾因"无界面、无调用点"被当作死代码删除；
+  /// 阶段十-Q 补齐了注册页与路由后重新引入 —— 能力与入口一并存在，不再是半死状态。
   Future<UserModel> register({
     required String username,
     required String email,
@@ -61,16 +68,6 @@ class AuthRepository {
     final response = await _dio.get('/auth/me');
     final data = response.data['data'] as Map<String, dynamic>;
     return UserModel.fromJson(data);
-  }
-
-  /// 换发 Access Token
-  Future<String> refreshToken(String refreshToken) async {
-    final response = await _dio.post(
-      '/auth/refresh',
-      data: {'refreshToken': refreshToken},
-    );
-    final data = response.data['data'] as Map<String, dynamic>;
-    return data['accessToken'] as String;
   }
 
   /// 退出登录

@@ -40,15 +40,20 @@ class AiRepository {
   }
 
   /// 获取图书 AI 深度导读详情 (优先读库缓存)
+  ///
+  /// 后端实际路径: GET /api/v1/ai/books/{bookId}/insight
+  /// （原实现请求 /ai/insights/books/{id}，该路径在后端不存在，必然 404）
   Future<BookInsightModel> getBookInsight(int bookId) async {
-    final response = await _dio.get('/ai/insights/books/$bookId');
+    final response = await _dio.get('/ai/books/$bookId/insight');
     final data = response.data['data'] as Map<String, dynamic>;
     return BookInsightModel.fromJson(data);
   }
 
   /// 馆员/管理员主动刷新图书 AI 导读
+  ///
+  /// 后端实际路径: POST /api/v1/ai/books/{bookId}/insight/refresh
   Future<BookInsightModel> refreshBookInsight(int bookId) async {
-    final response = await _dio.post('/ai/insights/books/$bookId/refresh');
+    final response = await _dio.post('/ai/books/$bookId/insight/refresh');
     final data = response.data['data'] as Map<String, dynamic>;
     return BookInsightModel.fromJson(data);
   }

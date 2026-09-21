@@ -24,9 +24,30 @@ class FakeBookRepository extends BookRepository {
     int? categoryId,
     String? keyword,
   }) async {
+    return _page(books, page, size);
+  }
+
+  /// 列表页优先调用高级检索接口 /books/search，因此测试替身必须同样实现它。
+  /// 原先仅桩了 getBooks，是靠"任何错误都静默降级到 getBooks"才通过的 ——
+  /// 那种降级会把 403/500/字段解析失败一并伪装成空列表，已在本阶段移除。
+  @override
+  Future<Map<String, dynamic>> searchBooks({
+    String? keyword,
+    String? author,
+    String? isbn,
+    int? categoryId,
+    bool? availableOnly,
+    int page = 1,
+    int size = 10,
+    String? sort,
+  }) async {
+    return _page(books, page, size);
+  }
+
+  Map<String, dynamic> _page(List<BookModel> items, int page, int size) {
     return {
-      'items': books,
-      'total': books.length,
+      'items': items,
+      'total': items.length,
       'page': page,
       'size': size,
       'totalPages': 1,

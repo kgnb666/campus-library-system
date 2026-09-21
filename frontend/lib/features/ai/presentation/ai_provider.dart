@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/network/api_error_mapper.dart';
 import '../data/ai_repository.dart';
 import '../domain/ai_model.dart';
 
@@ -38,14 +39,18 @@ class AiRecommendationsNotifier extends StateNotifier<AiRecommendationsState> {
 
     try {
       final list = await _repository.getRecommendations(limit: 8);
+      // 网络往返期间 notifier 可能已被销毁（登出会 invalidate 本 Provider），
+      // 此时写 state 会抛 "Tried to use AiRecommendationsNotifier after dispose"
+      if (!mounted) return;
       state = state.copyWith(
         recommendations: list,
         isLoading: false,
       );
     } catch (e) {
+      if (!mounted) return;
       state = state.copyWith(
         isLoading: false,
-        errorMessage: e.toString(),
+        errorMessage: mapApiError(e),
       );
     }
   }
@@ -65,6 +70,7 @@ class AiRecommendationsNotifier extends StateNotifier<AiRecommendationsState> {
     if (book.logId == null) return;
     try {
       await _repository.submitFeedback(book.logId!, feedback);
+      if (!mounted) return;
 
       // 更新本地状态，高亮用户的点赞/踩
       final updatedList = state.recommendations.map((item) {

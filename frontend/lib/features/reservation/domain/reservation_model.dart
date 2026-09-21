@@ -46,7 +46,7 @@ class ReservationModel {
 
   factory ReservationModel.fromJson(Map<String, dynamic> json) {
     return ReservationModel(
-      id: json['id'] as int,
+      id: (json['id'] as num?)?.toInt() ?? 0,
       reservationNo: json['reservationNo'] as String? ?? '',
       userId: json['userId'] as int? ?? 0,
       username: json['username'] as String?,
