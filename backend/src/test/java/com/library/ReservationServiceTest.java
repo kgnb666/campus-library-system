@@ -263,6 +263,11 @@ class ReservationServiceTest {
         ReservationResponse resB = reservationService.createReservation(
                 ReservationCreateRequest.builder().bookId(outOfStockBook.getId()).build(), principalB);
 
+        // 模拟真实还书链路：还书会先让在架库存 +1，再触发预约晋升。
+        // Stage 10-G 起晋升带库存守卫（库存不足时拒绝晋升），因此必须先恢复库存。
+        outOfStockBook.setAvailableCopies(1);
+        bookRepository.saveAndFlush(outOfStockBook);
+
         // 触发归还事件
         reservationService.onBookReturned(outOfStockBook.getId());
 
@@ -381,6 +386,11 @@ class ReservationServiceTest {
         entityA.setExpiredAt(OffsetDateTime.now().minusHours(1));
         entityA.setQueuePosition(0);
         reservationRepository.saveAndFlush(entityA);
+
+        // A 的就绪资格失效后，其占用的单册回到可借池，B 才具备晋升条件
+        // （Stage 10-G 起晋升带库存守卫）
+        outOfStockBook.setAvailableCopies(1);
+        bookRepository.saveAndFlush(outOfStockBook);
 
         // 执行超期释放调度
         reservationService.scanAndExpireReservations();

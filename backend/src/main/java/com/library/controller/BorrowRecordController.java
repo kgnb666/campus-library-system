@@ -1,5 +1,6 @@
 package com.library.controller;
 
+import com.library.common.util.PageLimits;
 import com.library.dto.borrow.BorrowCreateRequest;
 import com.library.dto.borrow.BorrowQueryParam;
 import com.library.dto.borrow.BorrowRecordResponse;
@@ -75,8 +76,7 @@ public class BorrowRecordController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size,
             @AuthenticationPrincipal UserPrincipal currentUser) {
-        int pageIndex = Math.max(0, page - 1);
-        Pageable pageable = PageRequest.of(pageIndex, size);
+        Pageable pageable = PageLimits.of(page, size);
         PageResult<BorrowRecordResponse> result = borrowCirculationService.getMyActiveRecords(currentUser, pageable);
         return ApiResponse.success(result);
     }
@@ -89,8 +89,7 @@ public class BorrowRecordController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size,
             @AuthenticationPrincipal UserPrincipal currentUser) {
-        int pageIndex = Math.max(0, page - 1);
-        Pageable pageable = PageRequest.of(pageIndex, size);
+        Pageable pageable = PageLimits.of(page, size);
         PageResult<BorrowRecordResponse> result = borrowCirculationService.getMyHistoryRecords(currentUser, pageable);
         return ApiResponse.success(result);
     }
@@ -109,8 +108,7 @@ public class BorrowRecordController {
             @RequestParam(required = false) OffsetDateTime endDate,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size) {
-        int pageIndex = Math.max(0, page - 1);
-        Pageable pageable = PageRequest.of(pageIndex, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Pageable pageable = PageLimits.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         BorrowQueryParam param = BorrowQueryParam.builder()
                 .recordNo(recordNo)
                 .userId(userId)

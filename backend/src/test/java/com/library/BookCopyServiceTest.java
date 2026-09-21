@@ -41,6 +41,10 @@ class BookCopyServiceTest {
     @Mock
     private BookRepository bookRepository;
 
+    /** Stage 10-G: 可借库存下降时会联动校正 READY 预约资格 */
+    @Mock
+    private com.library.service.ReservationService reservationService;
+
     @InjectMocks
     private BookCopyServiceImpl bookCopyService;
 
@@ -79,7 +83,7 @@ class BookCopyServiceTest {
                 .build();
 
         when(bookCopyRepository.existsByBarcode("LIB-2026-000102")).thenReturn(false);
-        when(bookRepository.findById(100L)).thenReturn(Optional.of(testBook));
+        when(bookRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(testBook));
         when(bookCopyRepository.save(any(BookCopy.class))).thenReturn(testCopy);
 
         BookCopyResponse response = bookCopyService.createCopy(100L, request);
@@ -101,7 +105,7 @@ class BookCopyServiceTest {
                 .build();
 
         when(bookCopyRepository.existsByBarcode("LIB-2026-000103")).thenReturn(false);
-        when(bookRepository.findById(100L)).thenReturn(Optional.of(testBook));
+        when(bookRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(testBook));
         when(bookCopyRepository.save(any(BookCopy.class))).thenReturn(testCopy);
 
         bookCopyService.createCopy(100L, request);
@@ -137,6 +141,8 @@ class BookCopyServiceTest {
                 .build();
 
         when(bookCopyRepository.findById(1001L)).thenReturn(Optional.of(testCopy));
+        // Stage 10-F: 库存变更改为加行级排他锁读取父级书目
+        when(bookRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(testBook));
         when(bookCopyRepository.save(any(BookCopy.class))).thenReturn(testCopy);
 
         bookCopyService.updateCopy(100L, 1001L, request);
@@ -159,6 +165,7 @@ class BookCopyServiceTest {
                 .build();
 
         when(bookCopyRepository.findById(1001L)).thenReturn(Optional.of(testCopy));
+        when(bookRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(testBook));
         when(bookCopyRepository.save(any(BookCopy.class))).thenReturn(testCopy);
 
         bookCopyService.updateCopy(100L, 1001L, request);
@@ -185,6 +192,7 @@ class BookCopyServiceTest {
     @DisplayName("副本删除 - 删除在架副本时父级 total 与 available 均扣减 1")
     void deleteCopy_Available_DecrementsBoth() {
         when(bookCopyRepository.findById(1001L)).thenReturn(Optional.of(testCopy));
+        when(bookRepository.findByIdForUpdate(100L)).thenReturn(Optional.of(testBook));
 
         bookCopyService.deleteCopy(100L, 1001L);
 

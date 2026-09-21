@@ -13,9 +13,11 @@ import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * JWT Token 生成、解析与合法性验证提供者 (JJWT 0.12+)
@@ -49,13 +51,17 @@ public class JwtTokenProvider {
     }
 
     /**
-     * 生成短周期 Access Token (包含 userId, username, roles)
+     * 生成短周期 Access Token (包含 jti, userId, username, roles)
+     *
+     * <p>jti (JWT ID) 是登出时把该 Access Token 精确加入黑名单的唯一依据：
+     * 没有它就无法在不误伤其它会话的前提下撤销单个令牌。</p>
      */
     public String generateAccessToken(Long userId, String username, List<String> roles) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + jwtProperties.getAccessTokenExpiration());
 
         return Jwts.builder()
+                .id(UUID.randomUUID().toString())
                 .subject(String.valueOf(userId))
                 .claim("username", username)
                 .claim("roles", roles)
@@ -63,6 +69,28 @@ public class JwtTokenProvider {
                 .expiration(expiryDate)
                 .signWith(signingKey)
                 .compact();
+    }
+
+    /**
+     * 从 Token 中提取 jti (唯一标识)
+     */
+    public String getJti(String token) {
+        return getClaims(token).getId();
+    }
+
+    /**
+     * 计算 Token 剩余有效期；已过期或无法解析时返回 {@link Duration#ZERO}
+     *
+     * <p>用于设置黑名单条目的 TTL：令牌本身过期后黑名单便无意义，无需长期占用 Redis。</p>
+     */
+    public Duration getRemainingValidity(String token) {
+        try {
+            Date expiration = getClaims(token).getExpiration();
+            long remainingMillis = expiration.getTime() - System.currentTimeMillis();
+            return remainingMillis > 0 ? Duration.ofMillis(remainingMillis) : Duration.ZERO;
+        } catch (Exception e) {
+            return Duration.ZERO;
+        }
     }
 
     /**

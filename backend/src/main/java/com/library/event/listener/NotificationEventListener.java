@@ -95,6 +95,40 @@ public class NotificationEventListener {
     }
 
     /**
+     * 监听预约就绪资格撤回事件 -> 主事务提交后异步推送"不必前来"提醒 (Stage 10-G)
+     *
+     * <p>库存被下调导致就绪预约失去可借单册时，必须在读者出发前告知，
+     * 否则读者会白跑一趟服务台。</p>
+     */
+    @Async("notificationExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onReservationReadyRevoked(com.library.event.ReservationReadyRevokedEvent event) {
+        if (event == null || event.getUserId() == null) {
+            return;
+        }
+        try {
+            String title = "预约到馆提醒已撤回";
+            String content = String.format(
+                    "很抱歉，您预约的图书《%s》（单号：%s）所在馆藏在架单册减少，当前暂时无书可借。"
+                            + "您的预约资格已保留并回到队列前位，一旦有单册可借会再次通知您，请暂勿前往服务台。",
+                    event.getBookTitle(),
+                    event.getReservationNo()
+            );
+
+            notificationService.sendNotification(
+                    event.getUserId(),
+                    title,
+                    content,
+                    NotificationType.RESERVATION_EXPIRED,
+                    RelatedEntityType.RESERVATION,
+                    event.getReservationId()
+            );
+        } catch (Exception e) {
+            log.error("预约就绪撤回通知推送失败: resId={}", event.getReservationId(), e);
+        }
+    }
+
+    /**
      * 监听预约超期失效事件 -> 主事务提交后异步推送失效提醒
      */
     @Async("notificationExecutor")

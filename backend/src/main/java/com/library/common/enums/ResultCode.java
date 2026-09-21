@@ -13,12 +13,14 @@ public enum ResultCode {
     AUTH_UNAUTHORIZED("AUTH_UNAUTHORIZED", "未登录或登录已过期", 401),
     AUTH_FORBIDDEN("AUTH_FORBIDDEN", "无权访问此资源", 403),
     LOGIN_FAILED("LOGIN_FAILED", "用户名或密码错误", 401),
+    LOGIN_RATE_LIMITED("LOGIN_RATE_LIMITED", "登录尝试过于频繁", 429),
     INVALID_TOKEN("INVALID_TOKEN", "无效的访问令牌", 401),
     TOKEN_EXPIRED("TOKEN_EXPIRED", "访问令牌已过期", 401),
     REFRESH_TOKEN_INVALID("REFRESH_TOKEN_INVALID", "刷新令牌无效或已过期", 401),
     USER_ALREADY_EXISTS("USER_ALREADY_EXISTS", "用户名或邮箱已被注册", 409),
     USER_NOT_FOUND("USER_NOT_FOUND", "用户不存在", 404),
     USER_DISABLED("USER_DISABLED", "用户账号已被禁用", 403),
+    REGISTRATION_DISABLED("REGISTRATION_DISABLED", "自助注册已关闭，请联系图书馆管理员开通账号", 403),
     ROLE_NOT_FOUND("ROLE_NOT_FOUND", "角色不存在", 404),
     // 图书与馆藏目录领域状态码 (Stage 2-A)
     CATEGORY_NOT_FOUND("CATEGORY_NOT_FOUND", "图书分类不存在", 404),
@@ -62,6 +64,9 @@ public enum ResultCode {
 
     RESOURCE_NOT_FOUND("RESOURCE_NOT_FOUND", "请求的资源不存在", 404),
     METHOD_NOT_ALLOWED("METHOD_NOT_ALLOWED", "不支持的HTTP请求方法", 405),
+    PAYLOAD_TOO_LARGE("PAYLOAD_TOO_LARGE", "上传内容超出体积上限", 413),
+    UNSUPPORTED_MEDIA_TYPE("UNSUPPORTED_MEDIA_TYPE", "不支持的请求媒体类型", 415),
+    DATA_CONFLICT("DATA_CONFLICT", "数据状态冲突", 409),
     SYSTEM_INTERNAL_ERROR("SYSTEM_INTERNAL_ERROR", "系统繁忙，请稍后重试", 500);
 
     private final String code;

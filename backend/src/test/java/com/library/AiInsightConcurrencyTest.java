@@ -9,6 +9,7 @@ import com.library.repository.BookRepository;
 import com.library.repository.CategoryRepository;
 import com.library.service.AiInsightService;
 import com.library.service.ai.AiProvider;
+import com.library.service.ai.BookInsightContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -79,7 +80,7 @@ class AiInsightConcurrencyTest {
         aiBookInsightRepository.deleteByBookId(testBook.getId());
 
         // Mock AI Provider 带 30ms 模拟网络 I/O 延迟
-        when(aiProvider.generateInsight(any(Book.class))).thenAnswer(inv -> {
+        when(aiProvider.generateInsight(any(BookInsightContext.class))).thenAnswer(inv -> {
             aiCallCount.incrementAndGet();
             Thread.sleep(30); // 模拟大模型网络延迟
             return BookInsightResponse.builder()
@@ -134,7 +135,7 @@ class AiInsightConcurrencyTest {
                 .withFailMessage("AI Provider 被调用了 %d 次，违反并发防重复生成保护!", aiCallCount.get())
                 .isEqualTo(1);
 
-        verify(aiProvider, times(1)).generateInsight(any(Book.class));
+        verify(aiProvider, times(1)).generateInsight(any(BookInsightContext.class));
 
         // 核心断言 2: 所有 100 个线程拿到的内容完全一致
         for (BookInsightResponse res : results) {

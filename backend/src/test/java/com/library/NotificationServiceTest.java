@@ -21,6 +21,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.SliceImpl;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.jpa.domain.Specification;
@@ -42,6 +43,9 @@ class NotificationServiceTest {
     private NotificationRepository notificationRepository;
     @Mock
     private UserRepository userRepository;
+    /** 广播分页写入每批 flush 后会清空一级缓存，故实现类现在依赖 EntityManager (Stage 10-I) */
+    @Mock
+    private jakarta.persistence.EntityManager entityManager;
 
     @InjectMocks
     private NotificationServiceImpl notificationService;
@@ -152,9 +156,14 @@ class NotificationServiceTest {
     }
 
     @Test
-    @DisplayName("发布系统公告 - 全体广播")
+    @DisplayName("发布系统公告 - 全体广播（游标分页流式写入，Stage 10-I）")
     void testPublishSystemAnnouncement_Broadcast() {
-        when(userRepository.findAll()).thenReturn(List.of(testUser));
+        // 原实现是 userRepository.findAll() 全表载入 + Java 侧过滤 ACTIVE；
+        // 现改为「状态 + 主键游标」分页，状态过滤下推到数据库，每批 flush 后清空一级缓存。
+        // 这里模拟两批：首批 1 名读者，第二批为空 -> 循环结束。
+        when(userRepository.findByIdGreaterThanAndStatusOrderByIdAsc(anyLong(), any(), any()))
+                .thenReturn(new SliceImpl<>(List.of(testUser)))
+                .thenReturn(new SliceImpl<>(List.of()));
 
         SystemNotificationRequest request = SystemNotificationRequest.builder()
                 .title("开馆时间调整通知")
@@ -164,5 +173,6 @@ class NotificationServiceTest {
         notificationService.publishSystemAnnouncement(request);
 
         verify(notificationRepository, times(1)).saveAll(anyList());
+        verify(notificationRepository, times(1)).flush();
     }
 }

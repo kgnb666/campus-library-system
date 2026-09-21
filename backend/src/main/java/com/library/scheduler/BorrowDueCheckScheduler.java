@@ -1,120 +1,59 @@
 package com.library.scheduler;
 
-import com.library.domain.entity.BorrowRecord;
-import com.library.domain.enums.BorrowRecordStatus;
-import com.library.domain.enums.NotificationType;
-import com.library.domain.enums.RelatedEntityType;
-import com.library.repository.BorrowRecordRepository;
-import com.library.repository.NotificationRepository;
-import com.library.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.time.OffsetDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.List;
+import java.time.Duration;
 
 /**
- * 图书借阅到期催还与逾期告警定时巡检调度器 (Stage 6-B)
- * 每日定时巡检即将到期图书（提前48小时）与滞还逾期图书，驱动站内消息通知与状态流转
+ * 图书借阅到期催还与逾期告警定时巡检调度器 (Stage 6-B，Stage 10-F 修复事务失效)
+ *
+ * <p>本类只负责"何时执行、是否由本实例执行"，具体业务在
+ * {@link BorrowDueCheckExecutor} 中完成 —— 拆分的必要性见该类的说明：
+ * 原先 {@code @Transactional} 与 {@code @Scheduled} 同处一类导致的自我调用，
+ * 使事务从未生效、通知一条也发不出去。</p>
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class BorrowDueCheckScheduler {
 
-    private final BorrowRecordRepository borrowRecordRepository;
-    private final NotificationRepository notificationRepository;
-    private final NotificationService notificationService;
+    private static final String LOCK_KEY = "scheduler:lock:borrow-due-check";
+    /** 锁 TTL 远大于任务耗时，任务异常退出时锁也会自动过期，不会永久卡死 */
+    private static final Duration LOCK_TTL = Duration.ofMinutes(10);
 
-    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+    private final BorrowDueCheckExecutor executor;
+    private final RedisSchedulerLock schedulerLock;
 
     @Scheduled(cron = "${app.borrow.due-check-cron:0 0 8 * * ?}")
     public void runDueCheckTask() {
+        String token = schedulerLock.tryAcquire(LOCK_KEY, LOCK_TTL);
+        if (token == null) {
+            log.info("借阅到期巡检任务已在其它实例执行中，本次跳过");
+            return;
+        }
+
         try {
             log.info("开始执行借阅到期催还与逾期巡检任务...");
-            scanAndProcessOverdueAndReminders();
-            log.info("借阅到期催还与逾期巡检任务执行完毕");
+            BorrowDueCheckExecutor.TaskSummary summary = executor.scanAndProcessOverdueAndReminders();
+
+            log.info("借阅到期催还与逾期巡检任务执行完毕 - 临期扫描 {} 条/通知 {} 条, "
+                            + "逾期扫描 {} 条/标记 {} 条/通知 {} 条, 失败 {} 条",
+                    summary.dueSoonScanned(), summary.dueSoonNotified(),
+                    summary.overdueScanned(), summary.overdueMarked(),
+                    summary.overdueNotified(), summary.failed());
+
+            if (summary.hasFailure()) {
+                log.error("借阅到期巡检存在 {} 条失败记录，请检查上方错误日志", summary.failed());
+            }
         } catch (Exception e) {
-            log.error("借阅到期巡检调度异常", e);
-        }
-    }
-
-    @Transactional
-    public void scanAndProcessOverdueAndReminders() {
-        OffsetDateTime now = OffsetDateTime.now();
-
-        // 1. 扫描即将在 48 小时内到期的在借记录 (dueAt between now and now + 48h)
-        OffsetDateTime dueEnd = now.plusHours(48);
-        List<BorrowRecord> dueSoonRecords = borrowRecordRepository.findRecordsDueBetween(now, dueEnd);
-        for (BorrowRecord record : dueSoonRecords) {
-            try {
-                // 幂等防重检测：24 小时内是否已推送过同类临期催还
-                boolean alreadyNotified = notificationRepository.existsByUserIdAndTypeAndRelatedEntityTypeAndRelatedEntityIdAndCreatedAtAfter(
-                        record.getUser().getId(),
-                        NotificationType.BORROW_DUE_REMIND,
-                        RelatedEntityType.BORROW_RECORD,
-                        record.getId(),
-                        now.minusHours(24)
-                );
-
-                if (!alreadyNotified) {
-                    String title = "图书即将到期催还提醒";
-                    String dueStr = record.getDueAt() != null ? record.getDueAt().format(DATE_FORMATTER) : "近期";
-                    String content = String.format("您借阅的图书《%s》（单号：%s）将于 %s 到期。若尚未读完，请及时在借阅中心办理续借；若已阅毕，请尽快归还。",
-                            record.getBook().getTitle(), record.getRecordNo(), dueStr);
-
-                    notificationService.sendNotification(
-                            record.getUser().getId(),
-                            title,
-                            content,
-                            NotificationType.BORROW_DUE_REMIND,
-                            RelatedEntityType.BORROW_RECORD,
-                            record.getId()
-                    );
-                }
-            } catch (Exception e) {
-                log.warn("处理临期催还失败: recordId={}", record.getId(), e);
-            }
-        }
-
-        // 2. 扫描已到期但状态仍为 BORROWING 的逾期记录 (dueAt < now)
-        List<BorrowRecord> overdueRecords = borrowRecordRepository.findOverdueBorrowingRecords(now);
-        for (BorrowRecord record : overdueRecords) {
-            try {
-                record.setStatus(BorrowRecordStatus.OVERDUE);
-                borrowRecordRepository.save(record);
-
-                // 幂等防重检测：24 小时内是否已推送过逾期告警
-                boolean alreadyNotified = notificationRepository.existsByUserIdAndTypeAndRelatedEntityTypeAndRelatedEntityIdAndCreatedAtAfter(
-                        record.getUser().getId(),
-                        NotificationType.BORROW_OVERDUE,
-                        RelatedEntityType.BORROW_RECORD,
-                        record.getId(),
-                        now.minusHours(24)
-                );
-
-                if (!alreadyNotified) {
-                    String title = "图书已逾期严重滞还告警";
-                    String dueStr = record.getDueAt() != null ? record.getDueAt().format(DATE_FORMATTER) : "之前";
-                    String content = String.format("严重警告：您借阅的图书《%s》（单号：%s）已于 %s 逾期！按图书馆规定，逾期期间将产生滞还违约金并暂停借阅权限，请速至图书馆归还。",
-                            record.getBook().getTitle(), record.getRecordNo(), dueStr);
-
-                    notificationService.sendNotification(
-                            record.getUser().getId(),
-                            title,
-                            content,
-                            NotificationType.BORROW_OVERDUE,
-                            RelatedEntityType.BORROW_RECORD,
-                            record.getId()
-                    );
-                }
-            } catch (Exception e) {
-                log.warn("处理逾期告警失败: recordId={}", record.getId(), e);
-            }
+            // 顶层异常必须打完整堆栈：原实现虽有 catch，但内部业务异常被逐条吞成 WARN，
+            // 导致"任务成功执行完毕"与"一条通知都没发出"长期并存而无人察觉
+            log.error("借阅到期催还与逾期巡检任务执行异常", e);
+        } finally {
+            schedulerLock.release(LOCK_KEY, token);
         }
     }
 }

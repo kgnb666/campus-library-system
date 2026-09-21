@@ -79,10 +79,14 @@ class AiRecommendationPerformanceTest {
         when(bookRepository.findRecommendationCandidates(eq(BookStatus.ACTIVE), pageableCaptor.capture()))
                 .thenReturn(mockCandidatePool);
 
-        when(logRepository.save(any(AiRecommendationLog.class))).thenAnswer(inv -> {
-            AiRecommendationLog log = inv.getArgument(0);
-            log.setId(888L);
-            return log;
+        // Stage 10-I: 曝光日志改为一次 saveAll（主键已改序列生成，ID 入批前即确定）
+        when(logRepository.saveAll(anyList())).thenAnswer(inv -> {
+            List<AiRecommendationLog> logs = inv.getArgument(0);
+            long nextId = 888L;
+            for (AiRecommendationLog log : logs) {
+                log.setId(nextId++);
+            }
+            return logs;
         });
 
         List<RecommendedBookResponse> recommendations = recommendService.getPersonalizedRecommendations(2001L, 10);
@@ -105,7 +109,8 @@ class AiRecommendationPerformanceTest {
         when(userRepository.findById(2001L)).thenReturn(Optional.of(reader));
         when(borrowRecordRepository.findDistinctBookIdsByUserId(2001L)).thenReturn(List.of(999L));
         when(borrowRecordRepository.countUserCategoryDistribution(2001L)).thenReturn(Collections.emptyList());
-        when(bookRepository.findById(999L)).thenReturn(Optional.of(
+        // Stage 10-I: 已读图书的作者提取由"逐本 findById"改为一次 findAllById 批量取回
+        when(bookRepository.findAllById(anyList())).thenReturn(List.of(
                 Book.builder().id(999L).title("已读图书").author("某作者").build()
         ));
 
@@ -113,10 +118,13 @@ class AiRecommendationPerformanceTest {
         when(bookRepository.findRecommendationCandidatesExclude(eq(BookStatus.ACTIVE), any(), pageableCaptor.capture()))
                 .thenReturn(mockCandidatePool);
 
-        when(logRepository.save(any(AiRecommendationLog.class))).thenAnswer(inv -> {
-            AiRecommendationLog log = inv.getArgument(0);
-            log.setId(889L);
-            return log;
+        when(logRepository.saveAll(anyList())).thenAnswer(inv -> {
+            List<AiRecommendationLog> logs = inv.getArgument(0);
+            long nextId = 889L;
+            for (AiRecommendationLog log : logs) {
+                log.setId(nextId++);
+            }
+            return logs;
         });
 
         List<RecommendedBookResponse> recommendations = recommendService.getPersonalizedRecommendations(2001L, 5);

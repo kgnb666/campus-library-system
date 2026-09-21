@@ -13,6 +13,7 @@ import com.library.exception.BusinessException;
 import com.library.repository.RoleRepository;
 import com.library.repository.UserRepository;
 import com.library.repository.UserRoleRepository;
+import com.library.security.PasswordPolicy;
 import com.library.security.jwt.JwtProperties;
 import com.library.security.jwt.JwtTokenProvider;
 import com.library.security.jwt.RefreshTokenService;
@@ -23,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -64,6 +66,15 @@ class AuthServiceTest {
 
     @Mock
     private JwtProperties jwtProperties;
+
+    /**
+     * 口令强度策略使用**真实实现**（@Spy）而不是 mock：
+     * 它不依赖任何外部组件，规则本身就是被测行为的一部分。
+     * 若用 mock，注册路径上的强度校验在测试里会变成空操作，
+     * "弱口令必须被拒绝"这类回归就再也测不出来了。
+     */
+    @Spy
+    private PasswordPolicy passwordPolicy = new PasswordPolicy();
 
     @InjectMocks
     private AuthServiceImpl authService;
@@ -210,12 +221,35 @@ class AuthServiceTest {
         when(roleRepository.findRolesByUserId(1L)).thenReturn(List.of(studentRole));
         when(jwtProperties.getAccessTokenExpiration()).thenReturn(1800000L);
         when(jwtTokenProvider.generateAccessToken(eq(1L), eq("student01"), anyList())).thenReturn("new-access-token");
+        when(refreshTokenService.rotateRefreshToken("valid-refresh-token", 1L, "student01"))
+                .thenReturn("rotated-refresh-token");
 
         AuthResponse response = authService.refreshToken(request);
 
         assertThat(response).isNotNull();
         assertThat(response.getAccessToken()).isEqualTo("new-access-token");
-        assertThat(response.getRefreshToken()).isEqualTo("valid-refresh-token");
+        // Stage 10-C: 刷新必须轮换 Refresh Token，并把全新令牌返回给客户端。
+        // 原实现把入参令牌原样回传，使同一令牌可在 7 天内被无限重放。
+        assertThat(response.getRefreshToken())
+                .isEqualTo("rotated-refresh-token")
+                .isNotEqualTo("valid-refresh-token");
+    }
+
+    @Test
+    @DisplayName("Refresh 测试 - 已轮换令牌被重放时撤销该用户全部会话")
+    void refreshToken_ReplayedRevokedToken_RevokesAllSessions() {
+        RefreshTokenRequest request = RefreshTokenRequest.builder()
+                .refreshToken("rotated-away-token")
+                .build();
+
+        when(refreshTokenService.validateAndGetUserId("rotated-away-token")).thenReturn(Optional.empty());
+        when(refreshTokenService.findRevokedTokenOwner("rotated-away-token")).thenReturn(Optional.of(42L));
+
+        assertThatThrownBy(() -> authService.refreshToken(request))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("code", ResultCode.REFRESH_TOKEN_INVALID.getCode());
+
+        verify(refreshTokenService).revokeAllForUser(42L);
     }
 
     @Test

@@ -9,6 +9,39 @@ spring:
     active: dev
   main:
     banner-mode: console
+  servlet:
+    multipart:
+      # Excel 批量编目导入所需的体积上限。
+      # 此前未配置，走 Spring Boot 默认 max-file-size=1MB，导致 README 宣传的
+      # "SAX 大规模 Excel 编目导入"对任何真实文件都会 413（Nginx 侧已放开 50M）。
+      max-file-size: 50MB
+      max-request-size: 60MB
+  task:
+    scheduling:
+      # 默认调度器为单线程：每日 08:00 的借阅巡检若耗时较长，
+      # 会阻塞每分钟执行的预约超期释放任务。显式配置为多线程池。
+      pool:
+        size: ${SCHEDULING_POOL_SIZE:4}
+      thread-name-prefix: campus-scheduler-
+  jpa:
+    properties:
+      hibernate:
+        # ------------------------------------------------------------------
+        # JDBC 批量写入 (Stage 10-I)
+        #
+        # 此前未配置，所有批量写路径都退化为逐条提交。实测一次面向 10318 名
+        # 活跃读者的公告广播产生 10318 条 INSERT、耗时 7.35s。
+        #
+        # batch_size 与 order_inserts/order_updates 是前提条件，真正能生效还需
+        # 主键不依赖 insert 回传值 —— 通知表原为 IDENTITY 主键，无法批处理，
+        # 已在 V15 迁移中改为序列生成（allocationSize=50，与序列 INCREMENT 对齐）。
+        # 其余实体仍是 IDENTITY，批量写入对其无效（无害，仅不生效）。
+        # ------------------------------------------------------------------
+        jdbc:
+          batch_size: 50
+        # 按实体类型归并语句，避免同一次 flush 中 insert/update 交错导致批次被打断
+        order_inserts: true
+        order_updates: true
 
 server:
   port: ${SERVER_PORT:8080}
@@ -29,8 +62,12 @@ management:
 
 # JWT Configuration
 jwt:
-  # Base64-safe secret key (>= 256 bits)
-  secret: ${JWT_SECRET:c2VjdXJlLWNhbXB1cy1saWJyYXJ5LWJvcnJvd2luZy1zeXN0ZW0tc2VjcmV0LWtleS0yMDI2LTA5LTE2LWZvci1qcGEtc3ByaW5nLXNlY3VyaXR5}
+  # 签名密钥 (Base64-safe, >= 256 bits)。严禁在此写入默认值或任何可用密钥。
+  # 必须由环境变量 JWT_SECRET 注入: dev 由 application-dev.yml 导入根目录 .env,
+  # test 由 application-test.yml 提供测试夹具, prod 由 docker-compose 强制注入。
+  # 此处写作 ${JWT_SECRET:} 而非 ${JWT_SECRET}，是为了让 JwtProperties 的启动校验
+  # 能输出中文可读错误，而不是 Spring 的英文 placeholder 解析异常。
+  secret: ${JWT_SECRET:}
   access-token-expiration: 1800000     # 30 minutes in ms
   refresh-token-expiration: 604800000  # 7 days in ms
 
@@ -42,3 +79,61 @@ springdoc:
     path: /swagger-ui.html
     tags-sorter: alpha
     operations-sorter: alpha
+
+# 业务调度窗口配置 (Stage 10-F 外置)
+# 此前 cron 只写在 @Scheduled 注解的默认值里，运维无法在不改代码的情况下调整。
+app:
+  borrow:
+    due-check-cron: "${BORROW_DUE_CHECK_CRON:0 0 8 * * ?}"
+  reservation:
+    expire-cron: "${RESERVATION_EXPIRE_CRON:0 * * * * ?}"
+  # 首次部署管理员引导 (Stage 10-L)
+  # 生产默认全部为空 = 不执行任何引导，代码里不存在任何默认口令。
+  # 首次部署时按 .env.example 填写这四个变量起一次服务，建号后请及时移除。
+  bootstrap:
+    admin:
+      username: ${BOOTSTRAP_ADMIN_USERNAME:}
+      password: ${BOOTSTRAP_ADMIN_PASSWORD:}
+      email: ${BOOTSTRAP_ADMIN_EMAIL:}
+      nickname: ${BOOTSTRAP_ADMIN_NICKNAME:图书馆管理员}
+  # 异步线程池参数 (Stage 10-I)
+  async:
+    notification:
+      core-pool-size: ${NOTIFICATION_CORE_POOL_SIZE:2}
+      max-pool-size: ${NOTIFICATION_MAX_POOL_SIZE:8}
+      # 队列容量必须显著小于"突发任务量"，否则线程数永远停在 core：
+      # ThreadPoolTaskExecutor 仅在队列满后才扩容，原值 500 使 maxPoolSize=8 长期不可达。
+      queue-capacity: ${NOTIFICATION_QUEUE_CAPACITY:50}
+  ai:
+    recommend-log:
+      # 曝光日志保留期与清理任务 (Stage 10-I)；设为 0 表示不清理
+      retention-days: ${RECOMMEND_LOG_RETENTION_DAYS:90}
+      retention-cron: "${RECOMMEND_LOG_RETENTION_CRON:0 30 3 * * ?}"
+  security:
+    # 是否匿名放行 Swagger / OpenAPI 文档 (Stage 10-H)
+    # dev/test 放行便于联调；application-prod.yml 置为 false，匿名访问返回 401
+    expose-api-docs: ${EXPOSE_API_DOCS:true}
+    # 是否开放自助注册 (Stage 10-Q)
+    # 默认开放（注册后仅获 STUDENT 角色）。真实校园部署若不允许任何人自助建号，
+    # 设 ALLOW_PUBLIC_REGISTRATION=false 关闭，改由管理员在「系统管理 → 用户管理」发放账号。
+    allow-public-registration: ${ALLOW_PUBLIC_REGISTRATION:true}
+    cors:
+      # 跨域来源白名单（逗号分隔，支持端口通配）。
+      # 生产通过 APP_CORS_ALLOWED_ORIGINS 注入真实前端域名，禁止使用 * 通配。
+      allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:*,http://127.0.0.1:*}
+    # 登录失败频控 (Stage 10-H)
+    login-attempt:
+      max-failures: ${LOGIN_MAX_FAILURES:5}
+      window-minutes: ${LOGIN_ATTEMPT_WINDOW_MINUTES:15}
+
+# 外部 AI 大模型接入配置 (Stage 10-F 外置)
+# 此前这些键在 yml 中完全不存在，超时硬编码 5s、无重试、运维不可调。
+ai:
+  deepseek:
+    api-key: ${AI_DEEPSEEK_API_KEY:}
+    base-url: ${AI_DEEPSEEK_BASE_URL:https://api.deepseek.com/v1}
+    model: ${AI_DEEPSEEK_MODEL:deepseek-chat}
+    connect-timeout-ms: ${AI_DEEPSEEK_CONNECT_TIMEOUT_MS:5000}
+    read-timeout-ms: ${AI_DEEPSEEK_READ_TIMEOUT_MS:5000}
+    max-retries: ${AI_DEEPSEEK_MAX_RETRIES:1}
+    retry-backoff-ms: ${AI_DEEPSEEK_RETRY_BACKOFF_MS:200}

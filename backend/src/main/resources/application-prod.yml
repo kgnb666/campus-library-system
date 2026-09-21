@@ -6,7 +6,11 @@ spring:
   datasource:
     url: jdbc:postgresql://${DB_HOST:postgres}:${DB_PORT:5432}/${DB_NAME:library_system}
     username: ${DB_USER:library}
-    password: ${DB_PASSWORD:library_password}
+    # 生产不提供口令默认值 (Stage 10-M)：
+    # 此前写的是 ${DB_PASSWORD:library_password}，单独运行 jar（不经 compose）时会静默使用
+    # 一个写在源码里的已知口令。与 JWT_SECRET 的处理保持一致 —— 缺失即启动失败，
+    # 由 Spring 报 "Could not resolve placeholder 'DB_PASSWORD'"，好过悄悄用弱口令连库。
+    password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 20
@@ -32,8 +36,31 @@ spring:
     enabled: true
     baseline-on-migrate: true
     locations: classpath:db/migration
+    placeholders:
+      # 生产默认禁用演示账号 (V9 种子写入的 123456 弱口令账号)。
+      # 若某次演示部署确需启用，显式注入环境变量 DEMO_DATA_ENABLED=true。
+      demoDataEnabled: ${DEMO_DATA_ENABLED:false}
 
 logging:
   level:
     root: INFO
     com.library: INFO
+
+# ----------------------------------------------------------------------
+# 生产环境安全收敛 (Stage 10-H)
+# ----------------------------------------------------------------------
+management:
+  endpoints:
+    web:
+      exposure:
+        # 生产不暴露 metrics：原实现下任何已认证读者都能读到 JVM/线程池/HTTP 等内部指标
+        include: health,info
+  endpoint:
+    health:
+      # 不对外暴露数据库/Redis 等组件的连接详情
+      show-details: never
+
+app:
+  security:
+    # 生产禁止匿名读取 Swagger / OpenAPI 文档（匿名访问返回 401）
+    expose-api-docs: false

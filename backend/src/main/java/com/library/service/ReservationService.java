@@ -52,4 +52,15 @@ public interface ReservationService {
      * 定时巡检超期未自提的 READY 预约单并顺延激活下一位
      */
     void scanAndExpireReservations();
+
+    /**
+     * 按当前在架库存校正 READY 预约名额 (Stage 10-G)
+     *
+     * <p>馆藏在架单册减少时（副本转维修/破损/遗失或被注销）必须联动预约：
+     * 否则会出现"READY 却无书可借"，读者收到到馆取书通知后白跑一趟。
+     * 由副本变更方在**同一事务内**调用（复用其已持有的书目行锁）。</p>
+     *
+     * @return 被撤回（回退为 WAITING）的就绪资格数量
+     */
+    int reconcileReadyReservationsWithStock(Long bookId);
 }

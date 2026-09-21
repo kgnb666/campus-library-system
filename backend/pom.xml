@@ -132,6 +132,23 @@
     </dependencies>
 
     <build>
+        <resources>
+            <!--
+              资源目录需要排除工具在本机生成的缓存目录 (Stage 10-M)。
+
+              实测问题: 代码审查/安全扫描工具会在被扫描目录旁落下 .mimosa/ 之类的状态目录。
+              一旦它出现在 src/main/resources 下，maven-resources-plugin 会把它原样复制到
+              target/classes（已实测确认），最终被打进生产 jar —— 发布产物里混进本机工具状态，
+              既无意义又会让评审追问。
+            -->
+            <resource>
+                <directory>src/main/resources</directory>
+                <excludes>
+                    <exclude>.mimosa/**</exclude>
+                    <exclude>**/.mimosa/**</exclude>
+                </excludes>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
@@ -163,9 +180,16 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <configuration>
+                <!--
+                  此处曾硬编码 Windows 专用参数:
                     <argLine>-Djdk.net.unixdomain.tmpdir=C:\Temp -Djava.io.tmpdir=C:\Temp</argLine>
-                </configuration>
+                  它把测试 JVM 的临时目录指向 C:\Temp，在 Linux/CI 上是不存在的路径，
+                  使测试套件完全不可移植（Dockerfile 用 -DskipTests 规避，等于 CI 永不跑测试）。
+                  已删除：平台相关的规避不应写进 pom 的通用 configuration。
+                  若在 Windows 上再次出现 Lettuce/Netty 因超长临时路径报 AF_UNIX 相关错误，
+                  请在运行侧用 MAVEN_OPTS 指向一个短目录（例如 MAVEN_OPTS=-Djava.io.tmpdir=C:\tmp），
+                  而不是把某个机器的绝对路径固化进构建定义。
+                -->
             </plugin>
         </plugins>
     </build>

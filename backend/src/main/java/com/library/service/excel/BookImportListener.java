@@ -103,7 +103,9 @@ public class BookImportListener implements ReadListener<BookImportExcelDto> {
         int copies = (row.getCopyCount() != null && row.getCopyCount() > 0) ? Math.min(row.getCopyCount(), 50) : 1;
         String location = StringUtils.hasText(row.getLocation()) ? row.getLocation().trim() : "综合阅览室";
 
-        Optional<Book> existingOpt = bookRepository.findByIsbn(cleanIsbn);
+        // 加行级排他锁读取：并发导入同一 ISBN 时，库存累加是"读-改-写"，
+        // 不加锁会互相覆盖。本方法运行在 TransactionTemplate 内，锁持有到该行提交为止。
+        Optional<Book> existingOpt = bookRepository.findByIsbnForUpdate(cleanIsbn);
         Book book;
         if (existingOpt.isPresent()) {
             book = existingOpt.get();

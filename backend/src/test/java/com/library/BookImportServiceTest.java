@@ -67,7 +67,7 @@ class BookImportServiceTest {
     @DisplayName("流式解析导入 Excel - 成功入库与错误行隔离测试")
     void testImportBooks_SuccessAndErrorIsolation() {
         when(categoryRepository.findAll()).thenReturn(List.of(testCategory));
-        when(bookRepository.findByIsbn(any())).thenReturn(Optional.empty());
+        when(bookRepository.findByIsbnForUpdate(any())).thenReturn(Optional.empty());
         when(bookRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         // 让 transactionTemplate 直接执行其 lambda 回调

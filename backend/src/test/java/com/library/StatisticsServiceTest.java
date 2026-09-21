@@ -128,12 +128,10 @@ class StatisticsServiceTest {
     @Test
     @DisplayName("AI 推荐系统效果大盘 - 正确计算 CTR、借阅转化率与好评率")
     void testGetRecommendationMetrics() {
-        when(recommendationLogRepository.count()).thenReturn(1000L);
-        when(recommendationLogRepository.countByClickedTrue()).thenReturn(160L);
-        when(recommendationLogRepository.countByBorrowedTrue()).thenReturn(80L);
-        when(recommendationLogRepository.countTotalLikeAndDislike()).thenReturn(100L);
-        when(recommendationLogRepository.countByFeedback("LIKE")).thenReturn(92L);
-        when(recommendationLogRepository.countByFeedback("DISLIKE")).thenReturn(8L);
+        // Stage 10-I: 6 条独立 count 合并为一次聚合查询，mock 随接口一起更新。
+        // 返回行元素顺序: [总曝光, 点击, 借阅, LIKE, DISLIKE]
+        when(recommendationLogRepository.aggregateRecommendationMetrics())
+                .thenReturn(List.<Object[]>of(new Object[]{1000L, 160L, 80L, 92L, 8L}));
 
         RecommendationMetricsResponse metrics = statisticsService.getRecommendationMetrics();
 
@@ -162,12 +160,9 @@ class StatisticsServiceTest {
         when(borrowRecordRepository.findPopularBooksSince(any(), any())).thenReturn(List.of());
         when(borrowRecordRepository.findPopularBooksAllTime(any())).thenReturn(List.of());
 
-        when(recommendationLogRepository.count()).thenReturn(500L);
-        when(recommendationLogRepository.countByClickedTrue()).thenReturn(80L);
-        when(recommendationLogRepository.countByBorrowedTrue()).thenReturn(40L);
-        when(recommendationLogRepository.countTotalLikeAndDislike()).thenReturn(50L);
-        when(recommendationLogRepository.countByFeedback("LIKE")).thenReturn(45L);
-        when(recommendationLogRepository.countByFeedback("DISLIKE")).thenReturn(5L);
+        // Stage 10-I: 聚合大盘同样改为单次聚合查询
+        when(recommendationLogRepository.aggregateRecommendationMetrics())
+                .thenReturn(List.<Object[]>of(new Object[]{500L, 80L, 40L, 45L, 5L}));
 
         LibrarianDashboardResponse dashboard = statisticsService.getLibrarianDashboard();
 

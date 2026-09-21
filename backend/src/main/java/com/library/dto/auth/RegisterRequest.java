@@ -30,8 +30,8 @@ public class RegisterRequest {
     private String email;
 
     @NotBlank(message = "密码不能为空")
-    @Size(min = 6, max = 64, message = "密码长度必须在 6-64 个字符之间")
-    @Schema(description = "登录密码", example = "Password123!")
+    @Size(min = 8, max = 64, message = "密码长度必须在 8-64 个字符之间")
+    @Schema(description = "登录密码 (需同时包含字母与数字)", example = "Password123!")
     private String password;
 
     @NotBlank(message = "用户昵称不能为空")

@@ -19,6 +19,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import com.library.event.ReservationExpiredEvent;
 import com.library.event.ReservationReadyEvent;
+import com.library.event.ReservationReadyRevokedEvent;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -33,7 +34,9 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
@@ -225,16 +228,25 @@ public class ReservationServiceImpl implements ReservationService {
             throw new BusinessException(ResultCode.PARAM_VALIDATION_ERROR, "必须指定预约记录ID");
         }
 
-        // 1. 锁定预约记录
+        // 1. 先无锁读取基础信息，取得所属书目
+        //    （不能"先锁 Reservation 再锁 Book"——那是逆序，会与借阅/履约路径构成环）
+        Reservation probe = reservationRepository.findById(reservationId)
+                .orElseThrow(() -> new BusinessException(ResultCode.RESERVATION_NOT_FOUND));
+
+        // 2. 统一锁偏序第一步: 父级书目
+        Book lockedBook = bookRepository.findByIdForUpdate(probe.getBook().getId())
+                .orElseThrow(() -> new BusinessException(ResultCode.BOOK_NOT_FOUND));
+
+        // 3. 统一锁偏序第二步: 预约行；持锁后以库中最新状态为准
         Reservation reservation = reservationRepository.findByIdForUpdate(reservationId)
                 .orElseThrow(() -> new BusinessException(ResultCode.RESERVATION_NOT_FOUND));
 
-        // 2. 防越权校验
+        // 4. 防越权校验
         if (!isAdminOrLibrarian(currentUser) && !reservation.getUser().getId().equals(currentUser.getId())) {
             throw new BusinessException(ResultCode.AUTH_FORBIDDEN, "无权取消他人的预约单");
         }
 
-        // 3. 状态校验
+        // 5. 状态校验（持锁后重新校验，避免与其它路径交叉）
         if (reservation.getStatus() == ReservationStatus.COMPLETED) {
             throw new BusinessException(ResultCode.RESERVATION_CANNOT_CANCEL, "已履约完成的预约单不允许取消");
         }
@@ -244,7 +256,7 @@ public class ReservationServiceImpl implements ReservationService {
 
         ReservationStatus oldStatus = reservation.getStatus();
         int cancelledPos = reservation.getQueuePosition();
-        Long bookId = reservation.getBook().getId();
+        Long bookId = lockedBook.getId();
 
         reservation.setStatus(ReservationStatus.CANCELLED);
         reservation.setQueuePosition(0);
@@ -322,10 +334,14 @@ public class ReservationServiceImpl implements ReservationService {
                 predicates.add(cb.equal(root.get("status"), param.getStatus()));
             }
             if (StringUtils.hasText(param.getKeyword())) {
-                String pattern = "%" + param.getKeyword().trim() + "%";
-                Predicate titlePred = cb.like(root.get("book").get("title"), pattern);
-                Predicate isbnPred = cb.like(root.get("book").get("isbn"), pattern);
-                Predicate usernamePred = cb.like(root.get("user").get("username"), pattern);
+                // 统一为 lower(col) LIKE lower-pattern 的大小写不敏感形状 (Stage 10-I)。
+                // 原先这里是裸列 LIKE，而图书检索用的是 lower(col) LIKE —— 两种形状各自需要
+                // 不同的三元组索引，导致只能满足一半。现全库统一为 lower() 形状，
+                // 索引也随之迁移为 lower(col) 表达式索引（见 V16 迁移）。
+                String pattern = "%" + param.getKeyword().trim().toLowerCase() + "%";
+                Predicate titlePred = cb.like(cb.lower(root.get("book").get("title")), pattern);
+                Predicate isbnPred = cb.like(cb.lower(root.get("book").get("isbn")), pattern);
+                Predicate usernamePred = cb.like(cb.lower(root.get("user").get("username")), pattern);
                 predicates.add(cb.or(titlePred, isbnPred, usernamePred));
             }
 
@@ -357,43 +373,186 @@ public class ReservationServiceImpl implements ReservationService {
 
     /**
      * 定时巡检超期未取的 READY 预约并顺延激活下一位
+     *
+     * <p>Stage 10-G: 改为"无锁选出候选 → 逐条按统一偏序加锁"。
+     * 原实现先用 {@code findExpiredReadyForUpdate} 锁住预约行，再在循环里回头晋升
+     * （晋升需要锁父级书目），形成 Reservation → Book 的**逆序**加锁，
+     * 与借阅/履约路径的 Book → Reservation 偏序相反，理论上构成循环等待。</p>
      */
     @Override
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public void scanAndExpireReservations() {
         OffsetDateTime now = OffsetDateTime.now();
-        List<Reservation> expiredList = reservationRepository.findExpiredReadyForUpdate(now);
 
-        for (Reservation res : expiredList) {
-            res.setStatus(ReservationStatus.EXPIRED);
+        // 先无锁筛选候选（数量通常很少），避免持有预约行锁后再回头锁书目
+        List<Reservation> candidates = reservationRepository.findExpiredReadyCandidates(now);
+
+        for (Reservation candidate : candidates) {
+            Long reservationId = candidate.getId();
+            Long bookId = candidate.getBook().getId();
+            try {
+                // 统一锁偏序第一步: 父级书目
+                bookRepository.findByIdForUpdate(bookId)
+                        .orElseThrow(() -> new BusinessException(ResultCode.BOOK_NOT_FOUND));
+
+                // 统一锁偏序第二步: 预约行；持锁后以库中最新状态重新校验
+                Reservation res = reservationRepository.findByIdForUpdate(reservationId)
+                        .orElseThrow(() -> new BusinessException(ResultCode.RESERVATION_NOT_FOUND));
+
+                if (res.getStatus() != ReservationStatus.READY
+                        || res.getExpiredAt() == null
+                        || !res.getExpiredAt().isBefore(now)) {
+                    continue; // 等待锁期间已被其它操作处理
+                }
+
+                res.setStatus(ReservationStatus.EXPIRED);
+                res.setQueuePosition(0);
+                reservationRepository.save(res);
+
+                reservationEventRepository.save(ReservationEvent.builder()
+                        .reservation(res)
+                        .eventType(ReservationEventType.EXPIRED)
+                        .description("超过 48 小时保留期未到馆借出，系统自动标记失效并顺延名额")
+                        .build());
+
+                log.info("预约超期释放完成! 单号: {}, 读者: {}, 书目ID: {}",
+                        res.getReservationNo(), res.getUser().getUsername(), bookId);
+
+                if (eventPublisher != null) {
+                    eventPublisher.publishEvent(new ReservationExpiredEvent(
+                            this, res.getId(), res.getReservationNo(),
+                            res.getUser().getId(), bookId,
+                            res.getBook().getTitle()));
+                }
+
+                // 顺延激活下一位排队等待者（此刻已持 Book 锁，重入顺畅）
+                promoteNextWaitingReservation(bookId, null);
+            } catch (Exception e) {
+                // 单条失败不阻断整批；下一分钟巡检会重试
+                log.error("预约超期释放处理失败: reservationId={}", reservationId, e);
+            }
+        }
+    }
+
+    /**
+     * 按当前在架库存校正 READY 名额 (Stage 10-G)
+     *
+     * <p>不变式: 同一书目的 READY 预约数**不得超过**其可用在架册数。
+     * 库存下降（副本转维修/破损/遗失/注销）时若不校正，就会出现
+     * "读者收到到馆取书通知、到馆却无书可借"。</p>
+     *
+     * <p>回退策略: 按"后晋升者先回退"（readyAt 倒序）撤回多余名额，
+     * 被撤回的读者回到队列**前位**（先到先得，其原排队时间仍早于后来的等待者），
+     * 并主动推送"暂勿前往"提醒。</p>
+     */
+    @Override
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public int reconcileReadyReservationsWithStock(Long bookId) {
+        // 与所有预约/库存路径共用同一锁入口，保证不变式判断的原子性
+        Book book = bookRepository.findByIdForUpdate(bookId)
+                .orElseThrow(() -> new BusinessException(ResultCode.BOOK_NOT_FOUND));
+
+        long readyCount = reservationRepository.countByBookIdAndStatus(bookId, ReservationStatus.READY);
+        int available = book.getAvailableCopies();
+        if (readyCount <= available) {
+            return 0; // 不变式成立，无需处理
+        }
+
+        int excess = (int) (readyCount - available);
+        List<Reservation> readies = reservationRepository.findReadyByBookIdOrderByReadyAtDesc(bookId);
+
+        OffsetDateTime now = OffsetDateTime.now();
+        int revoked = 0;
+        for (Reservation res : readies) {
+            if (revoked >= excess) {
+                break;
+            }
+
+            res.setStatus(ReservationStatus.WAITING);
+            res.setReadyAt(null);
+            res.setExpiredAt(null);
+            // 先占位为 0，renumberWaitingQueue 会把它排到队首
             res.setQueuePosition(0);
             reservationRepository.save(res);
 
             reservationEventRepository.save(ReservationEvent.builder()
                     .reservation(res)
-                    .eventType(ReservationEventType.EXPIRED)
-                    .description("超过 48 小时保留期未到馆借出，系统自动标记失效并顺延名额")
+                    .eventType(ReservationEventType.READY_REVOKED)
+                    .description("因在架单册减少，就绪取书资格被撤回，保留预约并回到队列前位")
                     .build());
 
-            log.info("预约超期释放完成! 单号: {}, 读者: {}, 书目ID: {}",
-                    res.getReservationNo(), res.getUser().getUsername(), res.getBook().getId());
+            log.warn("在架库存不足，撤回首尾就绪资格: reservationId={}, reservationNo={}, bookId={}, available={}, readyCount={}",
+                    res.getId(), res.getReservationNo(), bookId, available, readyCount);
 
             if (eventPublisher != null) {
-                eventPublisher.publishEvent(new ReservationExpiredEvent(
+                eventPublisher.publishEvent(new ReservationReadyRevokedEvent(
                         this, res.getId(), res.getReservationNo(),
-                        res.getUser().getId(), res.getBook().getId(),
-                        res.getBook().getTitle()));
+                        res.getUser().getId(), bookId,
+                        res.getBook().getTitle(), now));
             }
+            revoked++;
+        }
 
-            // 顺延激活下一位排队等待者
-            promoteNextWaitingReservation(res.getBook().getId(), null);
+        renumberWaitingQueue(bookId);
+        return revoked;
+    }
+
+    /**
+     * 统一重排队列位次 (Stage 10-G)
+     *
+     * <p>把 queue_position == 0 的记录（刚被撤回的 READY）视作"队首"，其余按原顺序跟进，
+     * 再从 1 开始连续编号。这样位次始终连续无空洞，也不依赖调用方的插入位置假设。</p>
+     */
+    private void renumberWaitingQueue(Long bookId) {
+        List<Reservation> waiting = new ArrayList<>(
+                reservationRepository.findWaitingByBookIdOrderByQueuePosition(bookId));
+
+        waiting.sort(Comparator
+                .comparingInt((Reservation r) -> {
+                    Integer pos = r.getQueuePosition();
+                    return (pos == null || pos == 0) ? 0 : 1; // 0 视为队首
+                })
+                .thenComparingInt(r -> r.getQueuePosition() == null ? 0 : r.getQueuePosition())
+                .thenComparing(Reservation::getReservedAt, Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(Reservation::getId));
+
+        int position = 1;
+        for (Reservation r : waiting) {
+            if (!Integer.valueOf(position).equals(r.getQueuePosition())) {
+                r.setQueuePosition(position);
+                reservationRepository.save(r);
+            }
+            position++;
         }
     }
 
     /**
      * 顺延晋升下一位 WAITING 预约者为 READY
+     *
+     * <p>Stage 10-G 修正两点:</p>
+     * <ol>
+     *   <li><b>加库存守卫</b>: 原先无条件置 READY，直接把读者叫到服务台却无书可借
+     *       —— 实测曾出现 33 条 READY 记录对应的书目在架库存为 0；</li>
+     *   <li><b>统一锁拓扑</b>: 原先只锁 WAITING 预约行，不锁父级书目，
+     *       其位次维护会与 createReservation（持 Book 锁做 max+1）交叉，
+     *       也与借阅/履约路径的 Book → Reservation 偏序不一致。
+     *       现在统一为 Book → Reservation。</li>
+     * </ol>
      */
     private void promoteNextWaitingReservation(Long bookId, UserPrincipal operator) {
+        // ① 统一锁入口: 先锁父级书目（与 createReservation / fulfillReservation 同偏序）
+        Book book = bookRepository.findByIdForUpdate(bookId)
+                .orElseThrow(() -> new BusinessException(ResultCode.BOOK_NOT_FOUND));
+
+        // ② 库存守卫: 可用在架库存必须多于已占用的 READY 名额，否则不晋升
+        long readyCount = reservationRepository.countByBookIdAndStatus(bookId, ReservationStatus.READY);
+        if (book.getAvailableCopies() <= readyCount) {
+            log.info("在架库存不足以支撑下一位预约晋升，保持排队: bookId={}, availableCopies={}, readyCount={}",
+                    bookId, book.getAvailableCopies(), readyCount);
+            return;
+        }
+
+        // ③ 锁定队首 WAITING 记录
         List<Reservation> waitingList = reservationRepository.findEarliestWaitingForUpdate(bookId, PageRequest.of(0, 1));
         if (!waitingList.isEmpty()) {
             Reservation next = waitingList.get(0);

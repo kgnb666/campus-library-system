@@ -1,5 +1,6 @@
 package com.library.controller;
 
+import com.library.common.util.PageLimits;
 import com.library.response.ApiResponse;
 import com.library.domain.enums.ReservationStatus;
 import com.library.dto.borrow.BorrowRecordResponse;
@@ -52,9 +53,8 @@ public class ReservationController {
             @Parameter(description = "每页数量")
             @RequestParam(defaultValue = "10") int size,
             @AuthenticationPrincipal UserPrincipal currentUser) {
-        int pageIndex = Math.max(0, page - 1);
         PageResult<ReservationResponse> result = reservationService.getMyReservations(
-                currentUser, status, PageRequest.of(pageIndex, size, Sort.by(Sort.Direction.DESC, "createdAt")));
+                currentUser, status, PageLimits.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt")));
         return ApiResponse.success(result);
     }
 
@@ -94,9 +94,8 @@ public class ReservationController {
     public ApiResponse<PageResult<ReservationResponse>> getAllReservations(
             @ModelAttribute ReservationQueryParam param,
             @AuthenticationPrincipal UserPrincipal currentUser) {
-        int pageIndex = Math.max(0, param.getPage() - 1);
         PageResult<ReservationResponse> result = reservationService.getAllReservations(
-                param, PageRequest.of(pageIndex, param.getSize(), Sort.by(Sort.Direction.DESC, "createdAt")));
+                param, PageLimits.of(param.getPage(), param.getSize(), Sort.by(Sort.Direction.DESC, "createdAt")));
         return ApiResponse.success(result);
     }
 }

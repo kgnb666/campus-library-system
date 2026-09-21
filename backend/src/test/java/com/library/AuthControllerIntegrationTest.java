@@ -186,16 +186,19 @@ class AuthControllerIntegrationTest {
 
     @Test
     @Order(9)
-    @DisplayName("登出接口 - 匿名请求被拦截 401")
-    void testLogout_Unauthorized() throws Exception {
+    @DisplayName("登出接口 - 允许匿名调用（Access Token 过期后仍可登出），且仅吊销本次携带的令牌")
+    void testLogout_AnonymousAllowedButScopedToPresentedToken() throws Exception {
         RefreshTokenRequest request = RefreshTokenRequest.builder()
                 .refreshToken(sharedRefreshToken)
                 .build();
 
+        // Stage 10-C 起 logout 不再要求预先认证：
+        // 否则 Access Token 一过期，客户端就无法登出，只能干等 Refresh Token 自然过期。
+        // 安全性由"只能吊销本次请求携带的那一个令牌"保证。
         mockMvc.perform(post("/api/v1/auth/logout")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("AUTH_UNAUTHORIZED"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"));
     }
 }

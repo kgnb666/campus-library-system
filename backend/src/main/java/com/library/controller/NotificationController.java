@@ -1,10 +1,12 @@
 package com.library.controller;
 
 import com.library.response.ApiResponse;
+import com.library.common.util.PageLimits;
 import com.library.domain.enums.NotificationType;
 import com.library.dto.common.PageResult;
 import com.library.dto.notification.NotificationResponse;
 import com.library.dto.notification.SystemNotificationRequest;
+import com.library.security.AuthPrincipals;
 import com.library.security.UserPrincipal;
 import com.library.service.NotificationService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -36,8 +38,9 @@ public class NotificationController {
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) Boolean unreadOnly,
             @RequestParam(required = false) NotificationType type) {
-        Long userId = currentUser != null ? currentUser.getId() : 1001L;
-        PageRequest pageRequest = PageRequest.of(Math.max(0, page - 1), size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Long userId = AuthPrincipals.require(currentUser).getId();
+        // size 经统一上限夹取，避免 ?size=Integer.MAX_VALUE 一次性载入整表
+        PageRequest pageRequest = PageLimits.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         PageResult<NotificationResponse> result = notificationService.getMyNotifications(userId, unreadOnly, type, pageRequest);
         return ApiResponse.success(result);
     }
@@ -47,7 +50,7 @@ public class NotificationController {
     @PreAuthorize("hasAuthority('notification:my:view')")
     public ApiResponse<Map<String, Long>> getUnreadCount(
             @AuthenticationPrincipal UserPrincipal currentUser) {
-        Long userId = currentUser != null ? currentUser.getId() : 1001L;
+        Long userId = AuthPrincipals.require(currentUser).getId();
         long count = notificationService.getUnreadCount(userId);
         return ApiResponse.success(Map.of("unreadCount", count));
     }
@@ -58,7 +61,7 @@ public class NotificationController {
     public ApiResponse<NotificationResponse> markAsRead(
             @AuthenticationPrincipal UserPrincipal currentUser,
             @PathVariable Long id) {
-        Long userId = currentUser != null ? currentUser.getId() : 1001L;
+        Long userId = AuthPrincipals.require(currentUser).getId();
         NotificationResponse response = notificationService.markAsRead(id, userId);
         return ApiResponse.success(response);
     }
@@ -68,7 +71,7 @@ public class NotificationController {
     @PreAuthorize("hasAuthority('notification:my:read')")
     public ApiResponse<Map<String, Integer>> markAllAsRead(
             @AuthenticationPrincipal UserPrincipal currentUser) {
-        Long userId = currentUser != null ? currentUser.getId() : 1001L;
+        Long userId = AuthPrincipals.require(currentUser).getId();
         int updatedCount = notificationService.markAllAsRead(userId);
         return ApiResponse.success(Map.of("updatedCount", updatedCount));
     }

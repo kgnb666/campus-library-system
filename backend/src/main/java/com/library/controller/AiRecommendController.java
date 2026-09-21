@@ -3,6 +3,7 @@ package com.library.controller;
 import com.library.response.ApiResponse;
 import com.library.dto.ai.RecommendationFeedbackRequest;
 import com.library.dto.ai.RecommendedBookResponse;
+import com.library.security.AuthPrincipals;
 import com.library.security.UserPrincipal;
 import com.library.service.AiRecommendService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -29,7 +30,7 @@ public class AiRecommendController {
     public ApiResponse<List<RecommendedBookResponse>> getPersonalizedRecommendations(
             @RequestParam(defaultValue = "10") int limit,
             @AuthenticationPrincipal UserPrincipal currentUser) {
-        Long userId = currentUser != null ? currentUser.getId() : 1001L;
+        Long userId = AuthPrincipals.require(currentUser).getId();
         List<RecommendedBookResponse> list = aiRecommendService.getPersonalizedRecommendations(userId, limit);
         return ApiResponse.success(list);
     }
@@ -40,7 +41,7 @@ public class AiRecommendController {
     public ApiResponse<Void> recordClick(
             @PathVariable Long logId,
             @AuthenticationPrincipal UserPrincipal currentUser) {
-        Long userId = currentUser != null ? currentUser.getId() : 1001L;
+        Long userId = AuthPrincipals.require(currentUser).getId();
         aiRecommendService.recordClick(logId, userId);
         return ApiResponse.success();
     }
@@ -52,7 +53,7 @@ public class AiRecommendController {
             @PathVariable Long logId,
             @Valid @RequestBody RecommendationFeedbackRequest request,
             @AuthenticationPrincipal UserPrincipal currentUser) {
-        Long userId = currentUser != null ? currentUser.getId() : 1001L;
+        Long userId = AuthPrincipals.require(currentUser).getId();
         aiRecommendService.recordFeedback(logId, userId, request.getFeedback());
         return ApiResponse.success();
     }

@@ -3,6 +3,11 @@
 # ======================================================================
 
 spring:
+  # 本地开发: 从项目根目录 .env 读取 JWT_SECRET 等敏感配置，避免任何默认密钥落入源码。
+  # optional: 表示文件缺失时静默跳过，此时由 JwtProperties 的启动校验给出中文报错。
+  # 注意: 该导入仅在 dev profile 生效；test/prod 均不加载 .env。
+  config:
+    import: optional:file:./../.env[.properties]
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:15437}/${DB_NAME:library_system}
     username: ${DB_USER:library}
@@ -37,3 +42,6 @@ spring:
     baseline-version: 0
     locations: classpath:db/migration
     validate-on-migrate: true
+    placeholders:
+      # 开发环境保留演示账号可用 (student_demo / librarian_demo / admin_demo)
+      demoDataEnabled: true

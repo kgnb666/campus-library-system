@@ -386,4 +386,73 @@ class BorrowCirculationServiceTest {
         assertThat(historyPage.getItems()).isNotEmpty();
         assertThat(historyPage.getItems().get(0).getStatus()).isEqualTo("RETURNED");
     }
+
+    /**
+     * 归还时库存计数越界必须被收敛，而不是撞数据库约束 (Stage 10-R)。
+     *
+     * <p>实测复现过的故障：种子数据里副本状态与借阅流水不一致（副本实际已借出，
+     * 但 `books.available_copies` 与 `total_copies` 相等），馆员点归还时服务层做
+     * {@code availableCopies + 1} → 算出 available_copies &gt; total_copies →
+     * 触发数据库 check 约束 books_check，界面只看到"当前数据状态与请求冲突，请刷新后重试"
+     * （409），与"归还"这件事毫无关联，排查方向被完全带偏。</p>
+     *
+     * <p>修复口径与副本管理路径一致（BookCopyServiceImpl 一直用的是 Math.min/max 收敛）：
+     * 归还按总册数封顶并留 WARN 日志，归还本身必须成功。</p>
+     */
+    @Test
+    @DisplayName("归还时库存计数越界 - 按总册数收敛并正常归还，不得抛数据冲突")
+    void returnBook_clampsAvailableCopiesInsteadOfViolatingConstraint() {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+
+        Category category = categoryRepository.saveAndFlush(Category.builder()
+                .code("CLAMP-" + suffix)
+                .name("计数收敛验证分类-" + suffix)
+                .sortOrder(1)
+                .status(CategoryStatus.ACTIVE)
+                .build());
+
+        // 构造"计数已越界"的书目：1 册且计数显示可借 1，但该册实际在借
+        Book book = bookRepository.saveAndFlush(Book.builder()
+                .title("计数收敛验证书目-" + suffix)
+                .author("测试著者")
+                .isbn("9786" + suffix.replaceAll("[^0-9]", "0") + "000")
+                .category(category)
+                .totalCopies(1)
+                .availableCopies(1)
+                .status(BookStatus.ACTIVE)
+                .build());
+
+        BookCopy copy = bookCopyRepository.saveAndFlush(BookCopy.builder()
+                .book(book)
+                .barcode("CLAMP-COPY-" + suffix)
+                .location("收敛验证书库")
+                .status(BookCopyStatus.BORROWED)
+                .build());
+
+        BorrowRecord record = borrowRecordRepository.saveAndFlush(BorrowRecord.builder()
+                .recordNo("REC-CLAMP-" + suffix)
+                .user(studentA)
+                .book(book)
+                .bookCopy(copy)
+                .borrowRule(studentRule)
+                .status(BorrowRecordStatus.BORROWING)
+                .borrowedAt(OffsetDateTime.now().minusDays(3))
+                .dueAt(OffsetDateTime.now().plusDays(27))
+                .build());
+
+        // 修复前：availableCopies + 1 = 2 > totalCopies = 1 → 数据库 check 约束报错
+        BorrowRecordResponse response = borrowCirculationService.returnBook(
+                record.getId(), createPrincipal(studentA, "STUDENT"));
+
+        assertThat(response.getStatus()).isEqualTo("RETURNED");
+
+        Book reloaded = bookRepository.findById(book.getId()).orElseThrow();
+        assertThat(reloaded.getAvailableCopies())
+                .as("越界计数必须按总册数收敛，而不是算出 2")
+                .isEqualTo(reloaded.getTotalCopies())
+                .isEqualTo(1);
+
+        assertThat(bookCopyRepository.findById(copy.getId()).orElseThrow().getStatus())
+                .isEqualTo(BookCopyStatus.AVAILABLE);
+    }
 }

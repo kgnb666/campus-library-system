@@ -29,6 +29,7 @@ public class CategoryController {
 
     @Operation(summary = "获取全部图书分类列表", description = "按排序号升序输出所有启用/停用的图书分类")
     @SecurityRequirement(name = "BearerAuth")
+    @PreAuthorize("hasAuthority('book:view')")
     @GetMapping
     public ApiResponse<List<CategoryResponse>> getAllCategories() {
         return ApiResponse.success(categoryService.getAllCategories());
@@ -36,6 +37,7 @@ public class CategoryController {
 
     @Operation(summary = "获取多级图书分类树形结构", description = "按层级嵌套返回分类树，具备防环保护与深度截断保护")
     @SecurityRequirement(name = "BearerAuth")
+    @PreAuthorize("hasAuthority('book:view')")
     @GetMapping("/tree")
     public ApiResponse<List<CategoryTreeResponse>> getCategoryTree() {
         return ApiResponse.success(categoryService.getCategoryTree());
@@ -43,6 +45,7 @@ public class CategoryController {
 
     @Operation(summary = "获取指定分类详情")
     @SecurityRequirement(name = "BearerAuth")
+    @PreAuthorize("hasAuthority('book:view')")
     @GetMapping("/{id}")
     public ApiResponse<CategoryResponse> getCategoryById(@PathVariable Long id) {
         return ApiResponse.success(categoryService.getCategoryById(id));

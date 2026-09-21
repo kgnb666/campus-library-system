@@ -9,11 +9,13 @@ import com.library.dto.ai.BookInsightResponse;
 import com.library.repository.AiBookInsightRepository;
 import com.library.repository.BookRepository;
 import com.library.service.ai.AiProvider;
+import com.library.service.ai.BookInsightContext;
 import com.library.service.impl.AiInsightServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
@@ -25,6 +27,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -63,7 +66,8 @@ class AiInsightServiceTest {
     @Test
     @DisplayName("首次获取导读 - 触发 AI 生成并持久化入库")
     void testGetBookInsight_FirstTimeGeneratesAndPersists() {
-        when(bookRepository.findById(101L)).thenReturn(Optional.of(testBook));
+        // Stage 10-F: 服务改用 fetch join 查询，以便在会话内取全 category
+        when(bookRepository.findByIdWithCategory(101L)).thenReturn(Optional.of(testBook));
         when(aiBookInsightRepository.findByBookId(101L)).thenReturn(Optional.empty());
 
         BookInsightResponse mockResponse = BookInsightResponse.builder()
@@ -77,14 +81,13 @@ class AiInsightServiceTest {
                 .generatedAt(OffsetDateTime.now())
                 .build();
 
-        when(aiProvider.generateInsight(testBook)).thenReturn(mockResponse);
-        when(transactionHelper.saveOrUpdateInsight(eq(testBook), any(BookInsightResponse.class)))
+        when(aiProvider.generateInsight(any(BookInsightContext.class))).thenReturn(mockResponse);
+        when(transactionHelper.saveOrUpdateInsight(eq(101L), any(BookInsightResponse.class)))
                 .thenAnswer(inv -> {
-                    Book b = inv.getArgument(0);
                     BookInsightResponse dto = inv.getArgument(1);
                     return AiBookInsight.builder()
                             .id(501L)
-                            .book(b)
+                            .book(testBook)
                             .summary(dto.getSummary())
                             .keyTopics("[\"系统原理\",\"汇编语言\",\"内存管理\"]")
                             .targetReader(dto.getTargetReader())
@@ -99,13 +102,21 @@ class AiInsightServiceTest {
         assertThat(result).isNotNull();
         assertThat(result.getBookTitle()).isEqualTo("深入理解计算机系统");
         assertThat(result.getKeyTopics()).contains("系统原理");
-        verify(transactionHelper, times(1)).saveOrUpdateInsight(eq(testBook), any(BookInsightResponse.class));
+
+        // 关键断言: 传给 Provider 的上下文必须已把懒加载的 category 取成具体值，
+        // 否则 Provider 在事务外无法再访问关联（这正是原 500 的成因）
+        ArgumentCaptor<BookInsightContext> captor = ArgumentCaptor.forClass(BookInsightContext.class);
+        verify(aiProvider, times(1)).generateInsight(captor.capture());
+        assertThat(captor.getValue().categoryName()).isEqualTo("计算机科学");
+        assertThat(captor.getValue().bookId()).isEqualTo(101L);
+
+        verify(transactionHelper, times(1)).saveOrUpdateInsight(eq(101L), any(BookInsightResponse.class));
     }
 
     @Test
     @DisplayName("二次获取导读 - 命中持久化直接返回，不再调用 AI Provider")
     void testGetBookInsight_ExistingReturnsFromDb() {
-        when(bookRepository.findById(101L)).thenReturn(Optional.of(testBook));
+        when(bookRepository.findByIdWithCategory(101L)).thenReturn(Optional.of(testBook));
 
         AiBookInsight cachedEntity = AiBookInsight.builder()
                 .id(501L)
@@ -131,7 +142,7 @@ class AiInsightServiceTest {
     @Test
     @DisplayName("管理员强制刷新导读 - 重新调用 AI Provider 并更新数据库记录")
     void testRefreshBookInsight_UpdatesDb() {
-        when(bookRepository.findById(101L)).thenReturn(Optional.of(testBook));
+        when(bookRepository.findByIdWithCategory(101L)).thenReturn(Optional.of(testBook));
 
         BookInsightResponse refreshed = BookInsightResponse.builder()
                 .bookId(101L)
@@ -144,14 +155,13 @@ class AiInsightServiceTest {
                 .generatedAt(OffsetDateTime.now())
                 .build();
 
-        when(aiProvider.generateInsight(testBook)).thenReturn(refreshed);
-        when(transactionHelper.saveOrUpdateInsight(eq(testBook), any(BookInsightResponse.class)))
+        when(aiProvider.generateInsight(any(BookInsightContext.class))).thenReturn(refreshed);
+        when(transactionHelper.saveOrUpdateInsight(eq(101L), any(BookInsightResponse.class)))
                 .thenAnswer(inv -> {
-                    Book b = inv.getArgument(0);
                     BookInsightResponse dto = inv.getArgument(1);
                     return AiBookInsight.builder()
                             .id(501L)
-                            .book(b)
+                            .book(testBook)
                             .summary(dto.getSummary())
                             .keyTopics("[\"最新特性\",\"缓存行优化\"]")
                             .targetReader(dto.getTargetReader())
@@ -164,6 +174,6 @@ class AiInsightServiceTest {
         BookInsightResponse result = insightService.refreshBookInsight(101L);
 
         assertThat(result.getSummary()).isEqualTo("最新重写的高级导读");
-        verify(transactionHelper, times(1)).saveOrUpdateInsight(eq(testBook), any(BookInsightResponse.class));
+        verify(transactionHelper, times(1)).saveOrUpdateInsight(eq(101L), any(BookInsightResponse.class));
     }
 }

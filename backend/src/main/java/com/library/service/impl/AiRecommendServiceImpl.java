@@ -63,15 +63,17 @@ public class AiRecommendServiceImpl implements AiRecommendService {
             if (i == 1) top2Category = catName;
         }
 
-        // 2.1 预提取已读图书的作者集合 (避免在评分循环中产生 N+1 查询)
+        // 2.1 预提取已读图书的作者集合 (Stage 10-I)
+        //     原实现是循环内 bookRepository.findById(rId)：注释声称"避免 N+1"，实际每本一次查询。
+        //     改为一次 findAllById 批量取回，再在内存里抽取作者。
         Set<String> readAuthors = new HashSet<>();
-        if (!readBookIdSet.isEmpty()) {
-            for (Long rId : readBookIds) {
-                bookRepository.findById(rId).ifPresent(b -> {
-                    if (b.getAuthor() != null && !b.getAuthor().isBlank()) {
-                        readAuthors.add(b.getAuthor());
-                    }
-                });
+        if (readBookIdSet.isEmpty()) {
+            // 冷启动无已读记录，无需查询
+        } else {
+            for (Book readBook : bookRepository.findAllById(readBookIds)) {
+                if (readBook.getAuthor() != null && !readBook.getAuthor().isBlank()) {
+                    readAuthors.add(readBook.getAuthor());
+                }
             }
         }
 
@@ -154,11 +156,17 @@ public class AiRecommendServiceImpl implements AiRecommendService {
         scoredCandidates.sort((a, b) -> Double.compare(b.score, a.score));
         List<ScoredCandidate> topN = scoredCandidates.stream().limit(limit).collect(Collectors.toList());
 
-        // 5. 落库生成推荐曝光日志
-        List<RecommendedBookResponse> resultList = new ArrayList<>();
+        // 5. 落库生成推荐曝光日志 (Stage 10-I)
+        //    原实现循环内逐条 logRepository.save()：每次推荐请求要发 limit 条 INSERT 往返，
+        //    且每条都要 "insert ... returning id" 取回主键。改为一次 saveAll 批量写入 ——
+        //    主键已在 V17 迁移中改为序列生成，ID 在入批前即已确定，因此批量提交后
+        //    仍能直接读到各自的 recommendationLogId 用于响应。
+        List<RecommendedBookResponse> resultList = new ArrayList<>(topN.size());
+        List<AiRecommendationLog> logEntities = new ArrayList<>(topN.size());
+
         for (ScoredCandidate cand : topN) {
             Book b = cand.book;
-            AiRecommendationLog logEntity = AiRecommendationLog.builder()
+            logEntities.add(AiRecommendationLog.builder()
                     .user(user)
                     .book(b)
                     .recommendationSource(cand.source)
@@ -166,11 +174,9 @@ public class AiRecommendServiceImpl implements AiRecommendService {
                     .scene("HOME_RECOMMEND")
                     .clicked(false)
                     .borrowed(false)
-                    .build();
-            logEntity = logRepository.save(logEntity);
+                    .build());
 
             resultList.add(RecommendedBookResponse.builder()
-                    .recommendationLogId(logEntity.getId())
                     .bookId(b.getId())
                     .isbn(b.getIsbn())
                     .title(b.getTitle())
@@ -185,6 +191,14 @@ public class AiRecommendServiceImpl implements AiRecommendService {
                     .reason(cand.reason)
                     .feedback(null)
                     .build());
+        }
+
+        List<AiRecommendationLog> savedLogs = logRepository.saveAll(logEntities);
+        logRepository.flush();
+
+        // 批量写回后逐条补上日志 ID（列表一一对应，顺序由 saveAll 保证）
+        for (int i = 0; i < savedLogs.size(); i++) {
+            resultList.get(i).setRecommendationLogId(savedLogs.get(i).getId());
         }
 
         return resultList;

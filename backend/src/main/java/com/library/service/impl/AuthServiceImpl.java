@@ -12,6 +12,7 @@ import com.library.repository.PermissionRepository;
 import com.library.repository.RoleRepository;
 import com.library.repository.UserRepository;
 import com.library.repository.UserRoleRepository;
+import com.library.security.PasswordPolicy;
 import com.library.security.jwt.JwtProperties;
 import com.library.security.jwt.JwtTokenProvider;
 import com.library.security.jwt.RefreshTokenService;
@@ -24,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -42,6 +44,8 @@ public class AuthServiceImpl implements AuthService {
     private final JwtTokenProvider jwtTokenProvider;
     private final RefreshTokenService refreshTokenService;
     private final JwtProperties jwtProperties;
+    /** 口令强度策略：注册与"管理员重置口令"共用同一套规则（Stage 10-O），避免两处各写一份 */
+    private final PasswordPolicy passwordPolicy;
 
     @Override
     @Transactional
@@ -56,7 +60,9 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException(ResultCode.USER_ALREADY_EXISTS, "电子邮箱 [" + request.getEmail() + "] 已被注册");
         }
 
-        // 3. BCrypt 密码加密 (Cost=12)
+        // 3. 密码强度校验 (Stage 10-H) 与 BCrypt 加密 (Cost=12)
+        // 口令强度校验：与"管理员重置口令"共用同一个策略组件 (Stage 10-O)
+        passwordPolicy.validate(request.getPassword());
         String encodedPassword = passwordEncoder.encode(request.getPassword());
 
         // 4. 落库保存用户实体
@@ -128,11 +134,26 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional(readOnly = true)
     public AuthResponse refreshToken(RefreshTokenRequest request) {
-        String refreshToken = request.getRefreshToken();
+        String presentedToken = request.getRefreshToken();
 
         // 1. 从 Redis 校验 Refresh Token
-        Long userId = refreshTokenService.validateAndGetUserId(refreshToken)
-                .orElseThrow(() -> new BusinessException(ResultCode.REFRESH_TOKEN_INVALID, "刷新令牌无效或已过期，请重新登录"));
+        Optional<Long> userIdOpt = refreshTokenService.validateAndGetUserId(presentedToken);
+        if (userIdOpt.isEmpty()) {
+            // 区分两种失败：令牌从未存在/已过期，与"已轮换的令牌被再次使用"。
+            // 后者是令牌泄露或窃取的典型特征，必须撤销该用户全部会话
+            // （OAuth 2.0 Security BCP 的 refresh token replay 处置方式）。
+            Optional<Long> revokedOwner = refreshTokenService.findRevokedTokenOwner(presentedToken);
+            if (revokedOwner.isPresent()) {
+                Long victimUserId = revokedOwner.get();
+                refreshTokenService.revokeAllForUser(victimUserId);
+                log.warn("检测到已撤销的 Refresh Token 被重放，已强制撤销该用户全部会话: userId={}", victimUserId);
+                throw new BusinessException(ResultCode.REFRESH_TOKEN_INVALID,
+                        "检测到令牌重放，已强制下线，请重新登录");
+            }
+            throw new BusinessException(ResultCode.REFRESH_TOKEN_INVALID, "刷新令牌无效或已过期，请重新登录");
+        }
+
+        Long userId = userIdOpt.get();
 
         // 2. 加载用户并核验状态
         User user = userRepository.findById(userId)
@@ -148,11 +169,16 @@ public class AuthServiceImpl implements AuthService {
 
         String newAccessToken = jwtTokenProvider.generateAccessToken(user.getId(), user.getUsername(), roleCodes);
 
-        log.info("用户 [userId={}] 成功通过 Refresh Token 刷新 Access Token", userId);
+        // 4. 轮换 Refresh Token：旧令牌立即失效并留痕，换发全新令牌。
+        //    原实现直接把入参令牌原样返回，导致同一令牌在 7 天内可被无限重放。
+        String newRefreshToken = refreshTokenService.rotateRefreshToken(
+                presentedToken, user.getId(), user.getUsername());
+
+        log.info("用户 [userId={}] 成功刷新令牌，Refresh Token 已完成轮换", userId);
 
         return AuthResponse.builder()
                 .accessToken(newAccessToken)
-                .refreshToken(refreshToken)
+                .refreshToken(newRefreshToken)
                 .tokenType("Bearer")
                 .expiresIn(jwtProperties.getAccessTokenExpiration() / 1000)
                 .user(buildUserProfileDto(user, roles))

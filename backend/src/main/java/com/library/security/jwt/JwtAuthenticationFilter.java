@@ -27,6 +27,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider jwtTokenProvider;
     private final CustomUserDetailsService customUserDetailsService;
+    private final AccessTokenBlacklistService accessTokenBlacklistService;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -36,22 +37,30 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String jwt = resolveToken(request);
 
             if (StringUtils.hasText(jwt) && jwtTokenProvider.validateToken(jwt)) {
-                Long userId = jwtTokenProvider.getUserId(jwt);
+                String jti = jwtTokenProvider.getJti(jwt);
 
-                UserDetails userDetails = customUserDetailsService.loadUserById(userId);
-                if (userDetails.isEnabled()) {
-                    UsernamePasswordAuthenticationToken authentication =
-                            new UsernamePasswordAuthenticationToken(
-                                    userDetails,
-                                    null,
-                                    userDetails.getAuthorities()
-                            );
-                    authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-
-                    SecurityContextHolder.getContext().setAuthentication(authentication);
-                    log.debug("用户 [userId={}] JWT 认证成功", userId);
+                // 登出后已撤销的 Access Token 必须立即失效，
+                // 否则它在剩余有效期内（最长 30 分钟）仍可继续访问系统
+                if (accessTokenBlacklistService.isRevoked(jti)) {
+                    log.warn("Access Token 已被登出撤销，拒绝认证: jti={}", jti);
                 } else {
-                    log.warn("用户 [userId={}] 账号已禁用，拒绝请求", userId);
+                    Long userId = jwtTokenProvider.getUserId(jwt);
+
+                    UserDetails userDetails = customUserDetailsService.loadUserById(userId);
+                    if (userDetails.isEnabled()) {
+                        UsernamePasswordAuthenticationToken authentication =
+                                new UsernamePasswordAuthenticationToken(
+                                        userDetails,
+                                        null,
+                                        userDetails.getAuthorities()
+                                );
+                        authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+
+                        SecurityContextHolder.getContext().setAuthentication(authentication);
+                        log.debug("用户 [userId={}] JWT 认证成功", userId);
+                    } else {
+                        log.warn("用户 [userId={}] 账号已禁用，拒绝请求", userId);
+                    }
                 }
             }
         } catch (Exception e) {

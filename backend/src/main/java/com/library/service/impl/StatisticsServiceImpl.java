@@ -201,12 +201,17 @@ public class StatisticsServiceImpl implements StatisticsService {
     @Override
     @Transactional(readOnly = true)
     public RecommendationMetricsResponse getRecommendationMetrics() {
-        long totalImpressions = recommendationLogRepository.count();
-        long totalClicks = recommendationLogRepository.countByClickedTrue();
-        long totalBorrows = recommendationLogRepository.countByBorrowedTrue();
-        long totalFeedback = recommendationLogRepository.countTotalLikeAndDislike();
-        long likeCount = recommendationLogRepository.countByFeedback("LIKE");
-        long dislikeCount = recommendationLogRepository.countByFeedback("DISLIKE");
+        // 单次聚合取回全部计数 (Stage 10-I)。
+        // 原实现串行发 6 条独立聚合（1 条无条件 count + 5 条带条件 count），每条都要扫一遍日志表；
+        // 这里合并为一次扫描，口径不变。
+        List<Object[]> rows = recommendationLogRepository.aggregateRecommendationMetrics();
+        Object[] row = rows.isEmpty() ? null : rows.get(0);
+        long totalImpressions = toLong(row, 0);
+        long totalClicks = toLong(row, 1);
+        long totalBorrows = toLong(row, 2);
+        long likeCount = toLong(row, 3);
+        long dislikeCount = toLong(row, 4);
+        long totalFeedback = likeCount + dislikeCount;
 
         double ctr = totalImpressions > 0 ?
                 Math.round((double) totalClicks / totalImpressions * 1000.0) / 10.0 : 0.0;
@@ -266,5 +271,13 @@ public class StatisticsServiceImpl implements StatisticsService {
                 .popularBooks(topBooks)
                 .aiMetrics(aiMetrics)
                 .build();
+    }
+
+    /** 从聚合行中安全取出某一列的计数（空表或驱动返回 null 时按 0 处理） */
+    private static long toLong(Object[] row, int index) {
+        if (row == null || index >= row.length || row[index] == null) {
+            return 0L;
+        }
+        return ((Number) row[index]).longValue();
     }
 }

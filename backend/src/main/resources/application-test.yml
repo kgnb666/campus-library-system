@@ -4,7 +4,18 @@
 
 spring:
   datasource:
-    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:15437}/${DB_NAME:library_system}
+    # 测试使用**独立数据库**，与开发库彻底隔离 (Stage 10-S)。
+    #
+    # 此前测试直连开发库 library_system，后果是实测出来的：每跑一次 mvn clean test
+    # 就往开发库塞进 100+ 本夹具书目（实测累计 1937 本，占书目目录 97%），
+    # 而这些夹具的 books.total_copies/available_copies 与 book_copies 实况并不一致 ——
+    # 界面显示"可借 N 册"、点借阅却报"无可借副本"，
+    # 馆员归还时还会因 available_copies 越界撞上 books_check 约束（表现为"数据状态冲突"）。
+    #
+    # 换成独立库后：测试随便造数据都不影响演示/开发库；测试库是一次性的，
+    # 随时可 DROP 重建（Flyway 会在首次运行时自动建表并灌入测试种子数据）。
+    # 库名可用 TEST_DB_NAME 覆盖；CI 由 postgres service 容器的 POSTGRES_DB 提供。
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:15437}/${TEST_DB_NAME:library_system_test}
     username: ${DB_USER:library}
     password: ${DB_PASSWORD:library_password}
     driver-class-name: org.postgresql.Driver
@@ -30,8 +41,26 @@ spring:
     enabled: true
     baseline-on-migrate: true
     locations: classpath:db/migration
+    placeholders:
+      # 测试上下文需要演示数据支撑集成测试
+      demoDataEnabled: true
+
+# JWT 测试夹具 (88+ 字符 → 解码后 512+ 位，与生产 HS512 保持一致)。
+# 仅用于让自动化测试上下文能够启动，不是任何环境可用的凭据:
+#   - prod profile 不加载本文件，且 application.yml 不提供默认密钥；
+#   - JwtProperties 启动校验仅要求"非空 + 足够强 + 不在泄露黑名单"，
+#     该值已公开且明确标注仅供测试，生产必须由 JWT_SECRET 环境变量注入。
+jwt:
+  secret: testprofileonlyephemeralkeynotforproductionuse0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij
 
 logging:
   level:
     root: INFO
     com.library: DEBUG
+
+# 测试环境下把登录失败窗口压到 1 分钟：
+# 频控用例会故意连续失败多次，短窗口可避免计数残留影响同批次其它用例的登录
+app:
+  security:
+    login-attempt:
+      window-minutes: 1

@@ -1,16 +1,8 @@
 package com.library;
 
-import com.library.domain.entity.Book;
-import com.library.domain.entity.BorrowRecord;
-import com.library.domain.entity.User;
-import com.library.domain.enums.BorrowRecordStatus;
-import com.library.domain.enums.NotificationType;
-import com.library.domain.enums.RelatedEntityType;
-import com.library.repository.BorrowRecordRepository;
-import com.library.repository.NotificationRepository;
+import com.library.scheduler.BorrowDueCheckExecutor;
 import com.library.scheduler.BorrowDueCheckScheduler;
-import com.library.service.NotificationService;
-import org.junit.jupiter.api.BeforeEach;
+import com.library.scheduler.RedisSchedulerLock;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -18,117 +10,64 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.time.OffsetDateTime;
-import java.util.List;
+import java.time.Duration;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
+/**
+ * 调度器职责测试 (Stage 10-F)
+ *
+ * <p>调度器现在只负责"何时执行、是否由本实例执行"：抢占分布式锁、委托执行体、
+ * 释放锁。业务断言见 {@link BorrowDueCheckExecutorTest}。</p>
+ */
 @ExtendWith(MockitoExtension.class)
 class BorrowDueCheckSchedulerTest {
 
     @Mock
-    private BorrowRecordRepository borrowRecordRepository;
+    private BorrowDueCheckExecutor executor;
     @Mock
-    private NotificationRepository notificationRepository;
-    @Mock
-    private NotificationService notificationService;
+    private RedisSchedulerLock schedulerLock;
 
     @InjectMocks
     private BorrowDueCheckScheduler scheduler;
 
-    private User testUser;
-    private Book testBook;
-    private BorrowRecord dueSoonRecord;
-    private BorrowRecord overdueRecord;
+    @Test
+    @DisplayName("未抢占到分布式锁时跳过执行（避免多实例重复推送通知）")
+    void skipsExecutionWhenLockNotAcquired() {
+        when(schedulerLock.tryAcquire(anyString(), any(Duration.class))).thenReturn(null);
 
-    @BeforeEach
-    void setUp() {
-        testUser = User.builder().id(1001L).username("student1").build();
-        testBook = Book.builder().id(201L).title("编译原理").build();
+        scheduler.runDueCheckTask();
 
-        dueSoonRecord = BorrowRecord.builder()
-                .id(401L)
-                .recordNo("REC20260917001")
-                .user(testUser)
-                .book(testBook)
-                .status(BorrowRecordStatus.BORROWING)
-                .dueAt(OffsetDateTime.now().plusHours(24))
-                .build();
-
-        overdueRecord = BorrowRecord.builder()
-                .id(402L)
-                .recordNo("REC20260917002")
-                .user(testUser)
-                .book(testBook)
-                .status(BorrowRecordStatus.BORROWING)
-                .dueAt(OffsetDateTime.now().minusHours(12))
-                .build();
+        verifyNoInteractions(executor);
+        verify(schedulerLock, never()).release(anyString(), anyString());
     }
 
     @Test
-    @DisplayName("巡检临期借阅 - 未推送过时触发催还通知")
-    void testScanDueSoon_SendsReminderWhenNotAlreadyNotified() {
-        when(borrowRecordRepository.findRecordsDueBetween(any(OffsetDateTime.class), any(OffsetDateTime.class)))
-                .thenReturn(List.of(dueSoonRecord));
-        when(borrowRecordRepository.findOverdueBorrowingRecords(any(OffsetDateTime.class)))
-                .thenReturn(List.of());
-        when(notificationRepository.existsByUserIdAndTypeAndRelatedEntityTypeAndRelatedEntityIdAndCreatedAtAfter(
-                eq(1001L), eq(NotificationType.BORROW_DUE_REMIND), eq(RelatedEntityType.BORROW_RECORD), eq(401L), any(OffsetDateTime.class)))
-                .thenReturn(false);
+    @DisplayName("抢占到锁时执行巡检并在结束后释放锁")
+    void executesAndReleasesLockWhenAcquired() {
+        when(schedulerLock.tryAcquire(anyString(), any(Duration.class))).thenReturn("token-1");
+        when(executor.scanAndProcessOverdueAndReminders())
+                .thenReturn(new BorrowDueCheckExecutor.TaskSummary(2, 1, 3, 3, 2, 0));
 
-        scheduler.scanAndProcessOverdueAndReminders();
+        scheduler.runDueCheckTask();
 
-        verify(notificationService, times(1)).sendNotification(
-                eq(1001L),
-                eq("图书即将到期催还提醒"),
-                contains("编译原理"),
-                eq(NotificationType.BORROW_DUE_REMIND),
-                eq(RelatedEntityType.BORROW_RECORD),
-                eq(401L)
-        );
+        verify(executor, times(1)).scanAndProcessOverdueAndReminders();
+        verify(schedulerLock, times(1)).release(anyString(), eq("token-1"));
     }
 
     @Test
-    @DisplayName("巡检临期借阅 - 24小时内已推送过时幂等跳过")
-    void testScanDueSoon_SkipsWhenAlreadyNotified() {
-        when(borrowRecordRepository.findRecordsDueBetween(any(OffsetDateTime.class), any(OffsetDateTime.class)))
-                .thenReturn(List.of(dueSoonRecord));
-        when(borrowRecordRepository.findOverdueBorrowingRecords(any(OffsetDateTime.class)))
-                .thenReturn(List.of());
-        when(notificationRepository.existsByUserIdAndTypeAndRelatedEntityTypeAndRelatedEntityIdAndCreatedAtAfter(
-                eq(1001L), eq(NotificationType.BORROW_DUE_REMIND), eq(RelatedEntityType.BORROW_RECORD), eq(401L), any(OffsetDateTime.class)))
-                .thenReturn(true);
+    @DisplayName("执行体抛异常时不向外冒泡且仍释放锁")
+    void releasesLockEvenWhenExecutorFails() {
+        when(schedulerLock.tryAcquire(anyString(), any(Duration.class))).thenReturn("token-2");
+        when(executor.scanAndProcessOverdueAndReminders())
+                .thenThrow(new RuntimeException("模拟任务异常"));
 
-        scheduler.scanAndProcessOverdueAndReminders();
+        // 调度线程不应因任务异常而中断
+        scheduler.runDueCheckTask();
 
-        verify(notificationService, never()).sendNotification(any(), any(), any(), any(), any(), any());
-    }
-
-    @Test
-    @DisplayName("巡检逾期借阅 - 标记为 OVERDUE 并发送严重告警")
-    void testScanOverdue_UpdatesStatusAndSendsAlert() {
-        when(borrowRecordRepository.findRecordsDueBetween(any(OffsetDateTime.class), any(OffsetDateTime.class)))
-                .thenReturn(List.of());
-        when(borrowRecordRepository.findOverdueBorrowingRecords(any(OffsetDateTime.class)))
-                .thenReturn(List.of(overdueRecord));
-        when(notificationRepository.existsByUserIdAndTypeAndRelatedEntityTypeAndRelatedEntityIdAndCreatedAtAfter(
-                eq(1001L), eq(NotificationType.BORROW_OVERDUE), eq(RelatedEntityType.BORROW_RECORD), eq(402L), any(OffsetDateTime.class)))
-                .thenReturn(false);
-
-        scheduler.scanAndProcessOverdueAndReminders();
-
-        verify(borrowRecordRepository, times(1)).save(overdueRecord);
-        assertThat(overdueRecord.getStatus()).isEqualTo(BorrowRecordStatus.OVERDUE);
-        verify(notificationService, times(1)).sendNotification(
-                eq(1001L),
-                eq("图书已逾期严重滞还告警"),
-                contains("编译原理"),
-                eq(NotificationType.BORROW_OVERDUE),
-                eq(RelatedEntityType.BORROW_RECORD),
-                eq(402L)
-        );
+        verify(schedulerLock, times(1)).release(anyString(), eq("token-2"));
     }
 }

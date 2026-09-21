@@ -20,8 +20,19 @@ import java.time.OffsetDateTime;
 @Builder
 public class AiRecommendationLog {
 
+    /**
+     * 主键采用序列生成而非 IDENTITY (Stage 10-I)。
+     * <p>
+     * 与 {@code Notification} 同一原因：IDENTITY 下 Hibernate 必须逐条
+     * {@code insert ... returning id} 才能取回主键，批量写入失效。曝光日志是每次
+     * 首页推荐请求都要写的热点路径，主键先取号再入批才能一次提交。
+     * <p>
+     * {@code allocationSize} 必须与序列 {@code INCREMENT BY}（见 V17 迁移）一致。
+     */
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "aiRecommendationLogIdGenerator")
+    @SequenceGenerator(name = "aiRecommendationLogIdGenerator",
+            sequenceName = "ai_recommendation_logs_id_seq", allocationSize = 50)
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)

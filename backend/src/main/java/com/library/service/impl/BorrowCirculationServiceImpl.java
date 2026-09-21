@@ -148,11 +148,33 @@ public class BorrowCirculationServiceImpl implements BorrowCirculationService {
             copy = availableCopies.get(0);
         }
 
+        // 6.1 【单册维度防重】: V10 的唯一约束是"按 copy_id"的，而第 4 步只校验了
+        //     "同一读者不能重复借同一本书"，两者维度不一致。单册重复借出
+        //     （如单册状态被人工改回 AVAILABLE 而旧流水仍在借）会直接撞约束，
+        //     由数据库抛异常，用户收到的是 500 而非可读提示。
+        boolean copyAlreadyBorrowed = borrowRecordRepository.existsByBookCopyIdAndStatusIn(
+                copy.getId(),
+                List.of(BorrowRecordStatus.BORROWING, BorrowRecordStatus.OVERDUE));
+        if (copyAlreadyBorrowed) {
+            throw new BusinessException(ResultCode.COPY_NOT_AVAILABLE,
+                    "该物理单册已处于借出状态，不可重复借出");
+        }
+
         // 7. 原子更新单册状态与书目在架可用库存
         copy.setStatus(BookCopyStatus.BORROWED);
         bookCopyRepository.save(copy);
 
-        book.setAvailableCopies(book.getAvailableCopies() - 1);
+        // 扣减在架库存并做下界收敛 (Stage 10-R)。
+        // 此前是裸减法：计数一旦已偏小（0）再减就成负数，直接撞数据库 check 约束
+        // （books_check 要求 0 <= available_copies <= total_copies），
+        // 用户看到的是与借阅无关的"数据状态冲突"，而不是可理解的业务提示。
+        // 收敛口径与副本管理路径（BookCopyServiceImpl）保持一致。
+        int availableAfterBorrow = book.getAvailableCopies() - 1;
+        if (availableAfterBorrow < 0) {
+            log.warn("书目在架库存计数异常（已为负），本次按 0 收敛: bookId={}, availableCopies={}, totalCopies={}",
+                    book.getId(), book.getAvailableCopies(), book.getTotalCopies());
+        }
+        book.setAvailableCopies(Math.max(0, availableAfterBorrow));
         bookRepository.save(book);
 
         // 8. 组装并持久化借阅流水记录
@@ -242,8 +264,18 @@ public class BorrowCirculationServiceImpl implements BorrowCirculationService {
         copy.setStatus(BookCopyStatus.AVAILABLE);
         bookCopyRepository.save(copy);
 
-        // 增加书目在架可用库存
-        book.setAvailableCopies(book.getAvailableCopies() + 1);
+        // 增加书目在架可用库存，并做上界收敛 (Stage 10-R)。
+        // 同样是裸加法：当计数已偏大（等于 total_copies）时再加 1 会算出
+        // available_copies > total_copies，触发数据库 check 约束 ——
+        // 实测表现就是"馆员点归还，界面报『当前数据状态与请求冲突』"，
+        // 而真正的原因是库存计数与副本现状早已不一致。这里收敛并留下告警，便于事后对账。
+        int availableAfterReturn = book.getAvailableCopies() + 1;
+        if (availableAfterReturn > book.getTotalCopies()) {
+            log.warn("书目在架库存计数与总册数不符，本次按总册数收敛: bookId={}, availableCopies={}, totalCopies={}。"
+                            + "通常意味着副本状态与借阅流水已不一致，建议对账。",
+                    book.getId(), book.getAvailableCopies(), book.getTotalCopies());
+        }
+        book.setAvailableCopies(Math.min(book.getTotalCopies(), availableAfterReturn));
         bookRepository.save(book);
 
         BorrowRecord updatedRecord = borrowRecordRepository.save(record);

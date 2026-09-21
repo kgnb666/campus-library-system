@@ -1,6 +1,5 @@
 package com.library.service.ai;
 
-import com.library.domain.entity.Book;
 import com.library.dto.ai.BookInsightResponse;
 import org.springframework.stereotype.Component;
 
@@ -10,21 +9,26 @@ import java.util.List;
 
 /**
  * 本地规则与启发式智能导读生成器 (Stage 5 离线测试与弹性容灾兜底提供者)
+ *
+ * <p>Stage 10-F: 改为基于 {@link BookInsightContext} 生成。
+ * 原实现直接读取 {@code book.getCategory().getName()}，在事务外调用时
+ * 因懒加载未初始化而抛 LazyInitializationException，使"降级兜底"这条路径本身失效。</p>
  */
 @Component("ruleBasedMockAiProvider")
 public class RuleBasedMockAiProvider implements AiProvider {
 
     @Override
-    public BookInsightResponse generateInsight(Book book) {
-        String categoryName = book.getCategory() != null ? book.getCategory().getName() : "综合通识";
-        String author = book.getAuthor() != null ? book.getAuthor() : "名家作者";
-        String title = book.getTitle();
+    public BookInsightResponse generateInsight(BookInsightContext context) {
+        String categoryName = context.categoryNameOrDefault();
+        String author = context.authorOrDefault();
+        String title = context.title();
+        String description = context.description();
 
         // 提炼核心简介
         String summary;
-        if (book.getDescription() != null && !book.getDescription().isBlank()) {
+        if (description != null && !description.isBlank()) {
             summary = "《" + title + "》是由" + author + "所著的" + categoryName + "领域经典佳作。本书系统阐述了" +
-                    (book.getDescription().length() > 100 ? book.getDescription().substring(0, 100) + "..." : book.getDescription());
+                    (description.length() > 100 ? description.substring(0, 100) + "..." : description);
         } else {
             summary = "《" + title + "》由" + author + "倾力编撰，是" + categoryName + "类别中极具借阅与研读价值的重要著作。";
         }
@@ -52,8 +56,8 @@ public class RuleBasedMockAiProvider implements AiProvider {
         String readingGuide = "建议先浏览全书目录建立宏观知识树，重点结合典型案例进行深入精读，并在阅读后梳理核心脑图以巩固学习成效。";
 
         return BookInsightResponse.builder()
-                .bookId(book.getId())
-                .bookTitle(book.getTitle())
+                .bookId(context.bookId())
+                .bookTitle(title)
                 .summary(summary)
                 .keyTopics(keyTopics)
                 .targetReader(targetReader)
@@ -64,7 +68,7 @@ public class RuleBasedMockAiProvider implements AiProvider {
     }
 
     @Override
-    public String generateRecommendationReason(Book book, String reasonContext) {
+    public String generateRecommendationReason(BookInsightContext context, String reasonContext) {
         if (reasonContext != null && !reasonContext.isBlank()) {
             return reasonContext;
         }

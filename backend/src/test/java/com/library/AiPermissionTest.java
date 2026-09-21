@@ -1,5 +1,6 @@
 package com.library;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.library.dto.ai.BookInsightResponse;
 import com.library.dto.statistics.LibraryOverviewStatisticsResponse;
 import com.library.dto.statistics.MyReadingStatisticsResponse;
@@ -12,9 +13,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
 import java.util.Collections;
 
@@ -34,6 +37,9 @@ class AiPermissionTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private ObjectMapper objectMapper;
+
     @MockBean
     private AiRecommendService aiRecommendService;
 
@@ -52,17 +58,30 @@ class AiPermissionTest {
 
     @Test
     @DisplayName("RBAC - 学生具备 statistics:my:view 权限时允许访问个人阅读画像 (200)")
-    @WithMockUser(username = "student1", authorities = {"statistics:my:view"})
     void student_AccessMyReadingStatistics_Returns200() throws Exception {
         when(statisticsService.getMyReadingStatistics(any()))
                 .thenReturn(MyReadingStatisticsResponse.builder()
-                        .userId(1001L)
+                        .userId(2612L)
                         .totalBorrowedCount(5L)
                         .build());
 
-        mockMvc.perform(get("/api/v1/statistics/my-reading"))
+        // 必须使用真实登录令牌：@WithMockUser 注入的认证主体不是 UserPrincipal，
+        // 而控制器现在要求主体存在（Stage 10-E 起不再 fail-open 回退到魔法用户 1001）。
+        // 本用例验证的是 RBAC 权限放行，因此用真实会话更贴合实际链路。
+        mockMvc.perform(get("/api/v1/statistics/my-reading")
+                        .header("Authorization", "Bearer " + loginAsStudentDemo()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("SUCCESS"));
+    }
+
+    private String loginAsStudentDemo() throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"student_demo\",\"password\":\"123456\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        return objectMapper.readTree(result.getResponse().getContentAsString())
+                .path("data").path("accessToken").asText();
     }
 
     @Test
