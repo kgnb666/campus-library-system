@@ -65,6 +65,54 @@ class ReadingStatisticsScreen extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // 0. 无借阅记录时的说明横幅。
+          // 阅读报告是**按登录账号**单独统计的：管理员/馆员账号自己没借过书，
+          // 此前页面只会显示一排 0 与空图表，使用者会以为是页面坏了
+          // （2026-09-22 部署后实测反馈）。这里把口径直接写出来。
+          if (stats.totalBorrowedCount == 0) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: theme.colorScheme.outlineVariant),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.info_outline, color: theme.colorScheme.primary),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '当前账号还没有借阅记录',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: theme.colorScheme.onSecondaryContainer,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '阅读报告按登录账号单独统计。如果你是用管理员或馆员账号打开的，'
+                          '请改用借过书的读者账号登录（例如登录页的「学生端」快捷入口）再查看。',
+                          style: TextStyle(
+                            fontSize: 12,
+                            height: 1.5,
+                            color: theme.colorScheme.onSecondaryContainer,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
           // 1. 头像/等级激励卡片
           _buildHeroCard(context, stats, theme),
 
