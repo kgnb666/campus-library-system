@@ -45,6 +45,10 @@ class BookCopyServiceTest {
     @Mock
     private com.library.service.ReservationService reservationService;
 
+    /** 删除副本前检查流通历史（borrow_records.copy_id 外键的可读性前置校验） */
+    @Mock
+    private com.library.repository.BorrowRecordRepository borrowRecordRepository;
+
     @InjectMocks
     private BookCopyServiceImpl bookCopyService;
 
@@ -186,6 +190,21 @@ class BookCopyServiceTest {
                 .hasFieldOrPropertyWithValue("code", ResultCode.BOOK_COPY_CANNOT_DELETE.getCode());
 
         verify(bookCopyRepository, never()).delete(any());
+    }
+
+    @Test
+    @DisplayName("副本删除 - 已有借阅历史的副本禁止删除，并给出可执行提示（不再落到含糊的数据状态冲突）")
+    void deleteCopy_WithBorrowHistory_Rejected() {
+        when(bookCopyRepository.findById(1001L)).thenReturn(Optional.of(testCopy));
+        when(borrowRecordRepository.existsByBookCopyId(1001L)).thenReturn(true);
+
+        assertThatThrownBy(() -> bookCopyService.deleteCopy(100L, 1001L))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("code", ResultCode.BOOK_COPY_CANNOT_DELETE.getCode())
+                .hasMessageContaining("已产生借阅记录");
+
+        verify(bookCopyRepository, never()).delete(any());
+        verify(bookRepository, never()).save(any());
     }
 
     @Test
