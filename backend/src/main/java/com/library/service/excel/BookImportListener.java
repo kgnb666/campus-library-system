@@ -164,7 +164,11 @@ public class BookImportListener implements ReadListener<BookImportExcelDto> {
             return "分类编码不能为空";
         }
         if (!categoryMap.containsKey(data.getCategoryCode().trim())) {
-            return "分类编码不存在: " + data.getCategoryCode();
+            // 报错时把可用编码一并给出：运维/馆员拿到的是可自我纠正的提示，
+            // 而不是只能猜"到底该填什么"（模板曾用 TP312，系统里实际是 CS）。
+            List<String> codes = new ArrayList<>(categoryMap.keySet());
+            Collections.sort(codes);
+            return "分类编码不存在: " + data.getCategoryCode() + "（可用编码: " + String.join("/", codes) + "）";
         }
         return null;
     }

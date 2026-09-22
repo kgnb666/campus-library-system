@@ -63,6 +63,8 @@ public interface BorrowRecordRepository extends JpaRepository<BorrowRecord, Long
      * 单册被重复借出时要等数据库抛约束异常，用户看到的是 500 而不是可读的业务提示。</p>
      */
     boolean existsByBookCopyIdAndStatusIn(Long copyId, Collection<BorrowRecordStatus> statuses);
+    /** 该物理副本是否存在任何借阅历史（含已归还）。用于删除副本前的可读性校验。 */
+    boolean existsByBookCopyId(Long copyId);
 
     /**
      * 分页查询读者当前在借流水 (按应还时间升序排列，即将到期排在最前)

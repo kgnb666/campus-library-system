@@ -10,6 +10,7 @@ import com.library.dto.copy.BookCopyUpdateRequest;
 import com.library.exception.BusinessException;
 import com.library.repository.BookCopyRepository;
 import com.library.repository.BookRepository;
+import com.library.repository.BorrowRecordRepository;
 import com.library.service.BookCopyService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,6 +33,8 @@ public class BookCopyServiceImpl implements BookCopyService {
     private final BookRepository bookRepository;
     /** Stage 10-G: 可借库存下降时联动校正 READY 预约名额 */
     private final com.library.service.ReservationService reservationService;
+    /** 删除副本前检查是否已有流通历史（存在外键时就无法物理删除） */
+    private final BorrowRecordRepository borrowRecordRepository;
 
     @Override
     @Transactional
@@ -132,6 +135,14 @@ public class BookCopyServiceImpl implements BookCopyService {
 
         if (copy.getStatus() == BookCopyStatus.BORROWED) {
             throw new BusinessException(ResultCode.BOOK_COPY_CANNOT_DELETE, "处于已借出状态的副本禁止注销删除");
+        }
+
+        // 有流通历史的副本不能物理删除：borrow_records.copy_id 上有外键，
+        // 直接删会抛数据库约束异常，最终被兜底映射成含糊的"数据状态冲突"。
+        // 这里前置判定并给出可执行的业务语义（保留流通审计痕迹是刻意设计）。
+        if (borrowRecordRepository.existsByBookCopyId(copyId)) {
+            throw new BusinessException(ResultCode.BOOK_COPY_CANNOT_DELETE,
+                    "该副本已产生借阅记录，禁止注销删除（流通审计痕迹需保留）；如需停用请改为修改副本状态");
         }
 
         // 同 createCopy/updateCopy：库存变更必须先锁父级书目行

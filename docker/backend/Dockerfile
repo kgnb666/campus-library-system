@@ -10,6 +10,14 @@ FROM eclipse-temurin:21-jdk-alpine AS builder
 
 WORKDIR /build
 
+# Maven 中央仓镜像。默认官方源；中国大陆构建建议换镜像（腾讯云/阿里云实测可用）：
+#   --build-arg MAVEN_MIRROR_URL=https://maven.aliyun.com/repository/public
+ARG MAVEN_MIRROR_URL=
+RUN if [ -n "${MAVEN_MIRROR_URL}" ]; then \
+        mkdir -p /root/.m2 && \
+        printf '%s' "<settings><mirrors><mirror><id>mirror</id><url>${MAVEN_MIRROR_URL}</url><mirrorOf>*</mirrorOf></mirror></mirrors></settings>" > /root/.m2/settings.xml; \
+    fi
+
 # 缓存依赖层
 COPY pom.xml ./
 COPY .mvn/ .mvn/

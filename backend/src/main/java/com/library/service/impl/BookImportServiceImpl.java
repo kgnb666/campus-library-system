@@ -64,6 +64,10 @@ public class BookImportServiceImpl implements BookImportService {
     public byte[] generateTemplate() {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
 
+        // 样例行必须使用**本系统真实存在的分类编码**，否则用户把模板原样传回
+        // 就会 100% 导入失败。此前样例行写的是图书分类法里的 "TP312"，
+        // 而系统种子数据里的分类编码是 CS/LIT/ECON/SCI/HIST/PHIL ——
+        // 即"系统自己下发的模板导不进自己的系统"（2026-09-22 巡检发现）。
         List<BookImportExcelDto> sampleData = List.of(
                 BookImportExcelDto.builder()
                         .isbn("9787111544937")
@@ -72,7 +76,7 @@ public class BookImportServiceImpl implements BookImportService {
                         .author("Randal E. Bryant")
                         .publisherName("机械工业出版社")
                         .publishDate("2016-11-01")
-                        .categoryCode("TP312")
+                        .categoryCode("CS")
                         .copyCount(3)
                         .location("三楼计算机借阅区")
                         .description("程序员必读经典，从系统底层剖析计算机运行机理。")
@@ -84,7 +88,7 @@ public class BookImportServiceImpl implements BookImportService {
                         .author("Steve Klabnik")
                         .publisherName("人民邮电出版社")
                         .publishDate("2020-10-01")
-                        .categoryCode("TP312")
+                        .categoryCode("CS")
                         .copyCount(2)
                         .location("三楼计算机借阅区")
                         .description("Rust 核心开发者编撰的官方教程。")
